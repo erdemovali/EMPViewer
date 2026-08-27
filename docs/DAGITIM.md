@@ -247,8 +247,13 @@ PyInstaller **çapraz derleme yapmaz** — `.app` yalnızca **macOS üzerinde**
 1. Projeyi bir GitHub reposuna it (`.github/workflows/build-macos.yml` zaten var).
 2. Repo ▸ **Actions** ▸ **Build macOS app** ▸ **Run workflow**.
 3. Bittiğinde iş sayfasının altındaki **Artifacts**'ten indir:
-   `EMPViewer-macos-arm64-dmg`, `EMPViewer-macos-x86_64-dmg` vb.
-4. `.dmg` imzasızdır — kullanıcı ilk açılışta **sağ tık ▸ Aç** yapar (§5.2).
+   `EMPViewer-macos-arm64`, `EMPViewer-macos-x86_64` (her biri `.dmg` + `.zip`).
+   Kullanıcının Mac'i Apple Silicon ise `arm64`, Intel ise `x86_64`.
+4. İmzasızsa: kullanıcı bir kez `xattr -dr com.apple.quarantine ...` çalıştırır
+   (§5.2). Repo secret'larını eklersen workflow otomatik imzalar/notarize eder
+   (§5.4) ve bu adım gerekmez.
+5. Yeşil tik = testler geçti + paket açıldı + frozen binary başladı (sadece
+   "hata vermeden derlendi" değil).
 
 ### 5.1 Mac üzerinde üret
 
@@ -264,13 +269,21 @@ tıklamayı `QFileOpenEvent` olarak yönlendirir (`main.py` bunu işler). İkon,
 
 ### 5.2 Kullanıcının yapacağı
 
-1. **`EMPViewer.app`**'i **/Applications** (veya `~/Applications`) içine sürükle.
-2. **İmzasız derlemede ilk açılış:** uygulamaya sağ tık ▸ **Aç** ▸ *Aç*
-   (Gatekeeper yalnızca ilk çift tıklamayı engeller). Ya da karantinayı temizle:
+1. **`.zip`'i Finder'da çift tıklayarak aç** (ZIP içinde bir ZIP daha var —
+   GitHub artifact'i öyle indirir; ikisini de Finder'da aç). `unzip` komutu veya
+   üçüncü parti araç kullanma — bundle'daki sembolik linkler bozulur ve
+   *gerçekten* "zarar görmüş" olur.
+2. **`EMPViewer.app`**'i **/Applications** (veya `~/Applications`) içine sürükle.
+3. **İmzasız derlemede ilk açılış — "zarar görmüş / açılamıyor" diyorsa:**
+   bu, indirilen dosyanın *karantina* etiketi yüzündendir (imza sorunu değil).
+   Terminal'de **tek seferlik**:
    ```bash
    xattr -dr com.apple.quarantine /Applications/EMPViewer.app
    ```
-3. **Varsayılan yap**, tür bazında: Finder'da bir `.eml` seç ▸ **⌘I** (Bilgi Al)
+   Sonra normal çift tıkla. (Apple Silicon'da imzasız + karantinalı uygulamada
+   *sağ tık ▸ Aç* çoğu zaman **yetmez**; güvenilir olan `xattr` komutudur.)
+   İmzalı+notarize edilmiş derlemede hiçbir şey yapmaya gerek yok.
+4. **Varsayılan yap**, tür bazında: Finder'da bir `.eml` seç ▸ **⌘I** (Bilgi Al)
    ▸ **Birlikte Aç** ▸ *EMPViewer* seç ▸ **Tümünü Değiştir…** ▸ *Devam*.
    `.msg`, `.pst`, `.ost` için tekrarla.
 
@@ -288,22 +301,138 @@ done
 
 Hazır script: `packaging/macos/set-default.command` (Finder'da çift tıklanabilir).
 
-### 5.4 Gatekeeper / notarization
+### 5.4 Gatekeeper / notarization (Apple Developer hesabın varsa)
 
-Kendi makinelerin dışına dağıtacaksan, kullanıcıların *"EMPViewer.app zarar
-görmüş / açılamıyor"* uyarısını görmemesi için imzala + notarize et:
+iOS yayınlıyorsan **hesap zaten var** — ekstra ücret yok. Ama iOS sertifikan
+işe yaramaz; Mac'i App Store dışında dağıtmak için **ayrı bir tür** sertifika
+lazım: **"Developer ID Application"**. Aynı hesapta, ücretsiz oluşturulur:
 
+- Xcode ▸ Settings ▸ Accounts ▸ (hesabın) ▸ **Manage Certificates** ▸ **+** ▸
+  *Developer ID Application*
+- ya da developer.apple.com/account ▸ Certificates ▸ + ▸ *Developer ID Application*
+
+Elle (Mac'te):
 ```bash
-codesign --deep --force --options runtime \
-  --sign "Developer ID Application: Adın (TEAMID)" dist/EMPViewer.app
+codesign --deep --force --options runtime --timestamp \
+  --sign "Developer ID Application: Ad Soyad (TEAMID)" dist/EMPViewer.app
 ditto -c -k --keepParent dist/EMPViewer.app EMPViewer.zip
 xcrun notarytool submit EMPViewer.zip --apple-id sen@ornek.com \
   --team-id TEAMID --password <uygulamaya-özel-parola> --wait
 xcrun stapler staple dist/EMPViewer.app
 ```
+`<uygulamaya-özel-parola>` = appleid.apple.com ▸ Oturum Açma ve Güvenlik ▸
+Uygulamaya Özgü Parolalar'dan üretilir (normal Apple ID parolan değil).
 
-Ücretli **Apple Developer** üyeliği gerekir (99 USD/yıl). Üyelik olmadan da
-uygulama sağ tık ▸ Aç ile çalışır.
+**GitHub Actions'ta otomatik:** `.github/workflows/build-macos.yml` şu repo
+secret'ları varsa imzalama + notarization + stapling adımlarını **kendi**
+çalıştırır (yoksa imzasız derler, sorunsuz):
+
+| Secret | Nedir |
+|---|---|
+| `MACOS_CERT_P12` | "Developer ID Application" sertifikanı `.p12` olarak dışa aktar, sonra `base64 -i cert.p12 \| pbcopy` çıktısı |
+| `MACOS_CERT_PASSWORD` | `.p12` dışa aktarırken verdiğin parola |
+| `MACOS_SIGN_IDENTITY` | `Developer ID Application: Ad Soyad (TEAMID)` (tam metin) |
+| `AC_APPLE_ID` | Apple ID e-postan |
+| `AC_PASSWORD` | uygulamaya özgü parola |
+| `AC_TEAM_ID` | 10 karakterlik Team ID |
+
+Repo ▸ Settings ▸ Secrets and variables ▸ Actions ▸ *New repository secret*.
+Bunlar tanımlıysa çıkan `.dmg` çift tıklamayla, uyarısız açılır — `xattr`
+gerekmez.
+
+Hesabın yoksa: üyelik 99 USD/yıl; olmadan da uygulama §5.2.3'teki `xattr`
+komutuyla çalışır.
+
+---
+
+### 5.4.1 Mac olmadan sertifikayı üretme ve secret'ları doldurma — adım adım
+
+Hepsi **Windows'ta Git Bash** ile yapılır (OpenSSL, Git for Windows'la gelir).
+Bir klasör aç, oradan Git Bash başlat.
+
+**Adım 1 — Özel anahtar + CSR üret (Git Bash):**
+```bash
+openssl genrsa -out developerID.key 2048
+openssl req -new -key developerID.key -out developerID.csr \
+  -subj "/emailAddress=SENIN_APPLE_ID_MAILIN/CN=EMPViewer Developer ID/C=TR"
+```
+→ `developerID.key` (gizli tut!) ve `developerID.csr` oluşur.
+
+**Adım 2 — Apple'dan sertifikayı al (tarayıcı):**
+1. https://developer.apple.com/account ▸ **Certificates, IDs & Profiles** ▸
+   **Certificates** ▸ mavi **+**
+2. Tür: **Developer ID Application** ▸ Continue
+3. "Profile Type": **G2 Sub-CA (Xcode 11.4.1 or later)** ▸ Continue
+4. **Choose File** ▸ `developerID.csr` yükle ▸ Continue
+5. **Download** ▸ `developerID.cer` iner (aynı klasöre koy)
+
+**Adım 3 — `.cer` + anahtarı `.p12`'ye birleştir (Git Bash):**
+```bash
+openssl x509 -inform DER -in developerID.cer -out developerID.pem
+openssl pkcs12 -export -legacy \
+  -inkey developerID.key -in developerID.pem \
+  -name "Developer ID Application" -out developerID.p12
+```
+→ Bir **dışa aktarma parolası** ister; ne yazdığını not et → bu
+`MACOS_CERT_PASSWORD` olacak.
+
+**Adım 4 — İmza kimliğinin tam metnini öğren (Git Bash):**
+```bash
+openssl x509 -in developerID.pem -noout -subject
+```
+Çıktıda `CN = Developer ID Application: Ad Soyad (XXXXXXXXXX)` görürsün.
+`Developer ID Application:` ile başlayan kısmın **tamamı** →
+`MACOS_SIGN_IDENTITY`. Parantez içindeki 10 karakter → `AC_TEAM_ID`
+(ayrıca developer.apple.com ▸ Membership'te de yazar).
+
+**Adım 5 — `.p12`'yi base64'e çevir (Git Bash):**
+```bash
+base64 -w0 developerID.p12 > developerID.p12.b64
+```
+`developerID.p12.b64` dosyasını Not Defteri'yle aç, **tüm içeriği** kopyala →
+`MACOS_CERT_P12`.
+
+**Adım 6 — Uygulamaya özgü parola (tarayıcı):**
+https://appleid.apple.com ▸ **Oturum Açma ve Güvenlik** ▸ **Uygulamaya Özgü
+Parolalar** ▸ **+** ▸ isim ver (örn. "EMPViewer notarize") ▸ üretilen
+`xxxx-xxxx-xxxx-xxxx` → `AC_PASSWORD`. (Normal Apple ID parolan **değil**.)
+
+**Adım 7 — GitHub'a gir:**
+Repo ▸ **Settings** ▸ **Secrets and variables** ▸ **Actions** ▸
+**New repository secret**. Her biri için ayrı ayrı:
+
+| Name (birebir bu) | Value |
+|---|---|
+| `MACOS_CERT_P12` | Adım 5'teki base64 metnin tamamı |
+| `MACOS_CERT_PASSWORD` | Adım 3'te verdiğin dışa aktarma parolası |
+| `MACOS_SIGN_IDENTITY` | Adım 4'teki `Developer ID Application: Ad Soyad (TEAMID)` |
+| `AC_APPLE_ID` | Apple ID e-posta adresin |
+| `AC_PASSWORD` | Adım 6'daki `xxxx-xxxx-xxxx-xxxx` |
+| `AC_TEAM_ID` | 10 karakterlik Team ID (Adım 4'teki parantez içi) |
+
+**Adım 8 — Çalıştır:**
+Repo ▸ **Actions** ▸ **Build macOS app** ▸ **Run workflow**. Bu sefer
+"Sign, notarize, staple" adımı da çalışır. Çıkan `.dmg` imzalı + notarize
+edilmiş olur → kullanıcı çift tıklar, hiçbir uyarı yok, `xattr` gerekmez.
+
+**Silmeyi unutma:** `developerID.key` ve `developerID.p12` gizli dosyalardır —
+repoya **koyma**, güvenli bir yerde sakla (yeniden lazım olursa). `.gitignore`
+zaten `*.p12` ve `*.key` içermiyorsa ekle:
+```
+*.key
+*.p12
+*.cer
+*.csr
+*.b64
+```
+
+**Olası hatalar:**
+- *"You have unsigned agreements"* → developer.apple.com'da bekleyen sözleşmeyi
+  onayla.
+- `security import` hatası → Adım 3'te `-legacy` bayrağının durduğundan emin ol.
+- codesign `--deep` bir framework'te takılırsa → nadir; Qt eklentileri genelde
+  sorunsuz. Gerekirse `--entitlements` ile
+  `com.apple.security.cs.allow-jit` eklenir.
 
 ### 5.5 macOS'ta `.pst` / `.ost`
 

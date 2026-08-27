@@ -18,3 +18,12 @@ tests/data/
 
 .DS_Store
 Thumbs.db
+
+# signing material - never commit
+*.key
+*.p12
+*.cer
+*.csr
+*.pem
+*.b64
+*.mobileprovision

@@ -1,8 +1,21 @@
 name: Build macOS app
 
-# A macOS .app / .dmg can only be produced ON macOS (PyInstaller does not
-# cross-compile). This runs the build on GitHub's macOS runners so you don't
-# need a Mac. Trigger it manually from the Actions tab, or by pushing a v* tag.
+# Produces a macOS .app + .dmg on GitHub's macOS runners (PyInstaller can't
+# cross-compile, so this can't run on Windows/Linux).
+#
+# Runs the test suite first, so a green check means "packaged AND imports/tests
+# pass" - not just "packaging didn't error".
+#
+# Code signing + notarization happen automatically IF these repo secrets exist
+# (Settings -> Secrets and variables -> Actions). Without them you still get a
+# working unsigned build (users clear quarantine once - see docs/DAGITIM.md 5.2):
+#
+#   MACOS_CERT_P12         base64 of your "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD    password for that .p12
+#   MACOS_SIGN_IDENTITY    e.g.  Developer ID Application: Ad Soyad (TEAMID)
+#   AC_APPLE_ID            your Apple ID e-mail
+#   AC_PASSWORD            an app-specific password (appleid.apple.com)
+#   AC_TEAM_ID             your 10-char Team ID
 
 on:
   workflow_dispatch:
@@ -15,9 +28,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14   # Apple Silicon (arm64)
+          - runner: macos-14        # Apple Silicon (arm64)
             arch: arm64
-          - runner: macos-13   # Intel (x86_64)
+          - runner: macos-13        # Intel (x86_64)
             arch: x86_64
     runs-on: ${{ matrix.runner }}
 
@@ -33,38 +46,90 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build .app and .dmg
+      - name: Run tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python build.py --dmg
+        run: python -m pytest -q
 
-      - name: Zip the .app (preserves bundle symlinks)
+      - name: Build .app
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python build.py --onedir
+
+      - name: Smoke-test the frozen binary
+        run: |
+          BIN="dist/EMPViewer.app/Contents/MacOS/EMPViewer"
+          test -x "$BIN" || { echo "frozen binary missing"; exit 1; }
+          # Launch briefly with no window; success = it starts the event loop and
+          # we kill it, failure = it crashes on startup (non-zero before timeout).
+          QT_QPA_PLATFORM=offscreen "$BIN" &
+          PID=$!
+          sleep 8
+          if kill -0 $PID 2>/dev/null; then kill $PID; echo "started OK"; else
+            wait $PID; echo "binary exited early with $?"; exit 1
+          fi
+
+      - name: Import signing certificate
+        id: cert
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+            echo "No signing secrets - producing an unsigned build."
+            exit 0
+          fi
+          KEYCHAIN=build.keychain
+          KP=$(openssl rand -hex 16)
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p "$KP" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KP" "$KEYCHAIN"
+          security import cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KP" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          rm cert.p12
+          echo "signing=true" >> "$GITHUB_OUTPUT"
+
+      - name: Sign, notarize, staple
+        if: steps.cert.outputs.signing == 'true'
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          AC_TEAM_ID: ${{ secrets.AC_TEAM_ID }}
+        run: |
+          APP=dist/EMPViewer.app
+          codesign --deep --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+          ditto -c -k --keepParent "$APP" notarize.zip
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$AC_APPLE_ID" --password "$AC_PASSWORD" --team-id "$AC_TEAM_ID" --wait
+          xcrun stapler staple "$APP"
+          spctl -a -vvv --type execute "$APP" || true
+
+      - name: Package .dmg and .zip
         run: |
           cd dist
+          hdiutil create -volname EMPViewer -srcfolder EMPViewer.app -ov -format UDZO \
+            "EMPViewer-macos-${{ matrix.arch }}.dmg"
           ditto -c -k --keepParent EMPViewer.app "EMPViewer-macos-${{ matrix.arch }}.zip"
 
-      - name: Upload .app
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: EMPViewer-macos-${{ matrix.arch }}-app
-          path: dist/EMPViewer-macos-${{ matrix.arch }}.zip
+          name: EMPViewer-macos-${{ matrix.arch }}
+          path: |
+            dist/EMPViewer-macos-${{ matrix.arch }}.dmg
+            dist/EMPViewer-macos-${{ matrix.arch }}.zip
 
-      - name: Upload .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: EMPViewer-macos-${{ matrix.arch }}-dmg
-          path: dist/EMPViewer.dmg
-          if-no-files-found: warn
-
-  # Optional: attach the artifacts to a GitHub Release when built from a v* tag.
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+        with: { path: artifacts }
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
