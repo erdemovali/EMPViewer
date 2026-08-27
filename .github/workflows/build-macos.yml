@@ -6,9 +6,16 @@ name: Build macOS app
 # Runs the test suite first, so a green check means "packaged AND imports/tests
 # pass" - not just "packaging didn't error".
 #
-# Code signing + notarization happen automatically IF these repo secrets exist
-# (Settings -> Secrets and variables -> Actions). Without them you still get a
-# working unsigned build (users clear quarantine once - see docs/DAGITIM.md 5.2):
+# Code signing + notarization happen automatically IF the 6 repo secrets below
+# exist (Settings -> Secrets and variables -> Actions). With them, signing is a
+# HARD requirement: if codesign / notarization / stapling fails the job goes
+# red - it will not quietly ship a broken .dmg. Signing is delegated to
+# packaging/macos/sign_and_notarize.sh (signs the PyInstaller bundle inside-out
+# with the hardened runtime + packaging/macos/entitlements.plist, then notarizes
+# and staples both the .app and the .dmg).
+#
+# Without the secrets you still get a working unsigned build (users clear
+# quarantine once with `xattr -dr com.apple.quarantine` - see docs/DAGITIM.md 5.2).
 #
 #   MACOS_CERT_P12         base64 of your "Developer ID Application" .p12
 #   MACOS_CERT_PASSWORD    password for that .p12
@@ -89,27 +96,23 @@ jobs:
           security unlock-keychain -p "$KP" "$KEYCHAIN"
           security import cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KP" "$KEYCHAIN"
-          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          # Prepend the build keychain to the existing search list (don't replace it,
+          # and don't hard-code login.keychain - newer runners use login.keychain-db).
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
           rm cert.p12
+          echo "Signing identities available:"
+          security find-identity -v -p codesigning
           echo "signing=true" >> "$GITHUB_OUTPUT"
 
-      - name: Sign, notarize, staple
+      - name: Sign + notarize + staple .app
         if: steps.cert.outputs.signing == 'true'
-        continue-on-error: true   # still upload an (unsigned) .dmg if signing trips
         env:
           SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
           AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
           AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
           AC_TEAM_ID: ${{ secrets.AC_TEAM_ID }}
-        run: |
-          APP=dist/EMPViewer.app
-          codesign --deep --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
-          codesign --verify --strict --verbose=2 "$APP"
-          ditto -c -k --keepParent "$APP" notarize.zip
-          xcrun notarytool submit notarize.zip \
-            --apple-id "$AC_APPLE_ID" --password "$AC_PASSWORD" --team-id "$AC_TEAM_ID" --wait
-          xcrun stapler staple "$APP"
-          spctl -a -vvv --type execute "$APP" || true
+        run: bash packaging/macos/sign_and_notarize.sh dist/EMPViewer.app
 
       - name: Package .dmg and .zip
         run: |
@@ -117,6 +120,30 @@ jobs:
           hdiutil create -volname EMPViewer -srcfolder EMPViewer.app -ov -format UDZO \
             "EMPViewer-macos-${{ matrix.arch }}.dmg"
           ditto -c -k --keepParent EMPViewer.app "EMPViewer-macos-${{ matrix.arch }}.zip"
+
+      - name: Sign + notarize + staple .dmg
+        if: steps.cert.outputs.signing == 'true'
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          AC_TEAM_ID: ${{ secrets.AC_TEAM_ID }}
+        run: |
+          bash packaging/macos/sign_and_notarize.sh --dmg-only \
+            "dist/EMPViewer-macos-${{ matrix.arch }}.dmg"
+
+      - name: Verify Gatekeeper acceptance
+        if: steps.cert.outputs.signing == 'true'
+        run: |
+          set -e
+          APP=dist/EMPViewer.app
+          DMG="dist/EMPViewer-macos-${{ matrix.arch }}.dmg"
+          echo "--- app ---"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl -a -vvv --type execute "$APP"
+          xcrun stapler validate "$APP"
+          echo "--- dmg ---"
+          xcrun stapler validate "$DMG"
 
       - uses: actions/upload-artifact@v4
         with:

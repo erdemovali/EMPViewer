@@ -311,17 +311,25 @@ lazım: **"Developer ID Application"**. Aynı hesapta, ücretsiz oluşturulur:
   *Developer ID Application*
 - ya da developer.apple.com/account ▸ Certificates ▸ + ▸ *Developer ID Application*
 
-Elle (Mac'te):
+Elle (Mac'te) — hazır script:
 ```bash
-codesign --deep --force --options runtime --timestamp \
-  --sign "Developer ID Application: Ad Soyad (TEAMID)" dist/EMPViewer.app
-ditto -c -k --keepParent dist/EMPViewer.app EMPViewer.zip
-xcrun notarytool submit EMPViewer.zip --apple-id sen@ornek.com \
-  --team-id TEAMID --password <uygulamaya-özel-parola> --wait
-xcrun stapler staple dist/EMPViewer.app
+export SIGN_IDENTITY="Developer ID Application: Ad Soyad (TEAMID)"
+export AC_APPLE_ID="sen@ornek.com"
+export AC_PASSWORD="<uygulamaya-özel-parola>"
+export AC_TEAM_ID="TEAMID"
+python build.py --onedir --dmg
+bash packaging/macos/sign_and_notarize.sh dist/EMPViewer.app
+bash packaging/macos/sign_and_notarize.sh --dmg-only dist/EMPViewer.dmg
 ```
 `<uygulamaya-özel-parola>` = appleid.apple.com ▸ Oturum Açma ve Güvenlik ▸
 Uygulamaya Özgü Parolalar'dan üretilir (normal Apple ID parolan değil).
+
+> **Neden düz `codesign --deep` değil?** EMPViewer bir PyInstaller/PySide6
+> bundle'ı; içinde onlarca `.so`/`.dylib` ve Qt framework'ü var. `--deep` bunları
+> güvenilir imzalamıyor ve hardened runtime altında `--entitlements` verilmezse
+> library validation uygulamayı açılışta öldürüyor ("EMPViewer.app açılamıyor").
+> `sign_and_notarize.sh` her iç Mach-O dosyasını tek tek, sonra bundle'ı en son
+> imzalar; entitlement'lar `packaging/macos/entitlements.plist` içinde.
 
 **GitHub Actions'ta otomatik:** `.github/workflows/build-macos.yml` şu repo
 secret'ları varsa imzalama + notarization + stapling adımlarını **kendi**
@@ -430,9 +438,12 @@ zaten `*.p12` ve `*.key` içermiyorsa ekle:
 - *"You have unsigned agreements"* → developer.apple.com'da bekleyen sözleşmeyi
   onayla.
 - `security import` hatası → Adım 3'te `-legacy` bayrağının durduğundan emin ol.
-- codesign `--deep` bir framework'te takılırsa → nadir; Qt eklentileri genelde
-  sorunsuz. Gerekirse `--entitlements` ile
-  `com.apple.security.cs.allow-jit` eklenir.
+- Notarization `Invalid` dönerse → workflow artık job'ı kırmızıya çevirir ve
+  `notarytool log` çıktısını basar; oradaki dosya yolundan hangi iç binary'nin
+  imzasız/geçersiz olduğunu görebilirsin.
+- İmzalı+notarize app açılmıyorsa → çoğu zaman entitlements eksikliğidir;
+  `packaging/macos/entitlements.plist` bundle'a uygulanıyor mu diye
+  `codesign -d --entitlements :- dist/EMPViewer.app` ile kontrol et.
 
 ### 5.5 macOS'ta `.pst` / `.ost`
 

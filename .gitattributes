@@ -1,0 +1,7 @@
+# Keep LF in files that break with CRLF (shell scripts run on macOS/Linux CI,
+# YAML workflows, macOS plists, the Finder .command helper).
+*.sh        text eol=lf
+*.command   text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.plist     text eol=lf
