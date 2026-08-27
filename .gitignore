@@ -19,6 +19,9 @@ tests/data/
 .DS_Store
 Thumbs.db
 
+# local scratch
+job-logs.txt
+
 # signing material - never commit
 *.key
 *.p12

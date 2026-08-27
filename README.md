@@ -4,6 +4,8 @@ A portable, cross-platform desktop viewer for **`.eml`**, **`.msg`**, **`.pst`**
 **`.ost`** mail files. Built with Python 3.11+ and PySide6. No installer, no Chromium,
 instant start.
 
+**Website:** <https://erdemovali.github.io/EMPViewer/> &nbsp;·&nbsp; **Downloads:** [Releases](https://github.com/erdemovali/EMPViewer/releases/latest)
+
 ![layout](assets/app.png)
 
 ## Features

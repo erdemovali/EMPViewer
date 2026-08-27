@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMPViewer</title>
+<meta name="description" content="Portable, cross-platform desktop viewer for .eml, .msg, .pst and .ost mail files. No installer, no Chromium, instant start.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --surface-2: #eef1f4;
+    --text: #1f2328;
+    --muted: #59636e;
+    --border: #d1d9e0;
+    --accent: #4285f4;
+    --accent-text: #1a66d6;
+    --accent-contrast: #ffffff;
+    --shadow: 0 1px 2px rgba(31, 35, 40, .08), 0 8px 24px rgba(31, 35, 40, .06);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #1c2230;
+      --text: #e6edf3;
+      --muted: #9198a1;
+      --border: #2a313c;
+      --accent: #4285f4;
+      --accent-text: #6ea8ff;
+      --accent-contrast: #0d1117;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-text); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .9em;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  header.nav {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner { display: flex; align-items: center; gap: 16px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; }
+  .brand svg { display: block; }
+  .nav-links { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+  .nav-links a { color: var(--muted); font-size: .93rem; font-weight: 500; }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+  @media (max-width: 640px) { .nav-links a.hide-sm { display: none; } }
+
+  /* buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font-weight: 600; font-size: .95rem;
+    transition: transform .06s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { text-decoration: none; background: var(--surface-2); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary {
+    background: var(--accent); border-color: var(--accent);
+    color: var(--accent-contrast);
+  }
+  .btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+
+  /* hero */
+  .hero { text-align: center; padding: 72px 0 56px; }
+  .hero .mark {
+    width: 76px; height: 76px; margin: 0 auto 22px;
+    display: grid; place-items: center;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; box-shadow: var(--shadow);
+  }
+  .hero h1 { font-size: clamp(2.1rem, 6vw, 3rem); margin: 0 0 12px; letter-spacing: -.03em; }
+  .hero .tagline { font-size: clamp(1.05rem, 2.5vw, 1.2rem); color: var(--muted); max-width: 620px; margin: 0 auto 28px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero .sub { margin-top: 20px; font-size: .85rem; color: var(--muted); }
+
+  /* sections */
+  section.block { padding: 48px 0; border-top: 1px solid var(--border); }
+  section.block h2 { font-size: 1.5rem; letter-spacing: -.02em; margin: 0 0 24px; }
+  section.block h3 { font-size: 1.02rem; margin: 0 0 6px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .card p { margin: 0; color: var(--muted); font-size: .92rem; }
+  .card .ico { font-size: 1.3rem; margin-bottom: 10px; display: block; }
+
+  .formats { display: grid; gap: 12px; }
+  .fmt {
+    display: grid; grid-template-columns: 90px 1fr; gap: 16px; align-items: start;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px;
+  }
+  .fmt .ext { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .fmt p { margin: 0; color: var(--muted); font-size: .9rem; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .panel ol, .panel ul { margin: 8px 0 0; padding-left: 20px; }
+  .panel li { margin: 6px 0; color: var(--muted); font-size: .92rem; }
+  .panel li code { color: var(--text); background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+
+  pre.code {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px; overflow-x: auto;
+    color: var(--text); line-height: 1.7;
+  }
+  pre.code .c { color: var(--muted); }
+
+  .note {
+    margin-top: 16px; font-size: .88rem; color: var(--muted);
+    border-left: 3px solid var(--accent); padding-left: 12px;
+  }
+
+  ul.dl { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  ul.dl li {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px;
+  }
+  ul.dl .plat { font-weight: 600; }
+  ul.dl .file { color: var(--muted); font-size: .85rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 32px 0 48px;
+    color: var(--muted); font-size: .88rem;
+  }
+  footer .frow { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+  footer .frow a { color: var(--muted); }
+  footer .frow a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <span class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="4.5" width="20" height="15" rx="3" fill="var(--accent)"/>
+        <path d="M4 7.5l8 5.5 8-5.5" stroke="var(--accent-contrast)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      EMPViewer
+    </span>
+    <nav class="nav-links">
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#formats" class="hide-sm">Formats</a>
+      <a href="#downloads">Downloads</a>
+      <a href="https://github.com/erdemovali/EMPViewer">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <div class="mark">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="4.5" width="20" height="15" rx="3" fill="var(--accent)"/>
+        <path d="M4 7.5l8 5.5 8-5.5" stroke="var(--accent-contrast)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1>EMPViewer</h1>
+    <p class="tagline">A portable desktop viewer for <code>.eml</code>, <code>.msg</code>, <code>.pst</code> and <code>.ost</code> mail files. No installer, no Chromium, instant start.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/erdemovali/EMPViewer/releases/latest">Download</a>
+      <a class="btn" href="https://github.com/erdemovali/EMPViewer">View on GitHub</a>
+    </div>
+    <p class="sub">macOS (Apple Silicon &amp; Intel) &middot; Windows &middot; Linux &nbsp;|&nbsp; MIT licensed &nbsp;|&nbsp; Python 3.11+ / PySide6</p>
+  </section>
+
+  <section class="block" id="features">
+    <h2>Features</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="ico">📬</span>
+        <h3>Four formats, one app</h3>
+        <p><code>.eml</code> via the standard library, <code>.msg</code> via <code>extract_msg</code>, and <code>.pst</code>/<code>.ost</code> through a pluggable backend — auto-detected at runtime.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🧩</span>
+        <h3>Built-in PST reader</h3>
+        <p>A pure-Python MS-PST reader with <em>no dependencies</em> is the default. <code>libpff</code> or a <code>readpst</code> binary are used in preference when present, but never required.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🛡️</span>
+        <h3>Privacy by default</h3>
+        <p>Remote images and tracking pixels are blocked until you click <em>Load remote content</em>. Inline <code>cid:</code> images always render offline.</p>
+      </div>
+      <div class="card">
+        <span class="ico">⚡</span>
+        <h3>Never blocks</h3>
+        <p>Every parse and every PST folder/message load runs on a worker thread — the UI stays responsive even on large <code>.pst</code> files.</p>
+      </div>
+      <div class="card">
+        <span class="ico">📎</span>
+        <h3>Attachments</h3>
+        <p>Click to open with the OS default app (a copy lands in a per-session temp dir wiped on exit); right-click for <em>Save As…</em>.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🖱️</span>
+        <h3>Drag &amp; drop + file association</h3>
+        <p>Drop any supported file onto the window. Register as the double-click handler on Windows, macOS and Linux.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="formats">
+    <h2>Formats</h2>
+    <div class="formats">
+      <div class="fmt">
+        <span class="ext">.eml</span>
+        <p>Standard-library <code>email</code> module — always available, zero dependencies.</p>
+      </div>
+      <div class="fmt">
+        <span class="ext">.msg</span>
+        <p><code>extract_msg</code>: headers, HTML/text body, inline images, attachments, RTF fallback.</p>
+      </div>
+      <div class="fmt">
+        <span class="ext">.pst / .ost</span>
+        <p>Built-in pure-Python reader (Unicode PST/OST; none / permute / cyclic encryption). Falls back to <code>libpff</code> or <code>readpst</code> if importable / on <code>PATH</code>. Modern profile-encrypted <code>.ost</code> is reported cleanly as unreadable rather than crashing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="downloads">
+    <h2>Downloads</h2>
+    <p>Grab the latest build from the <a href="https://github.com/erdemovali/EMPViewer/releases/latest">Releases</a> page:</p>
+    <ul class="dl">
+      <li><span class="plat">macOS — Apple Silicon</span> <span class="file">EMPViewer-macos-arm64.dmg</span></li>
+      <li><span class="plat">macOS — Intel</span> <span class="file">EMPViewer-macos-x86_64.dmg</span></li>
+      <li><span class="plat">Windows</span> <span class="file">build via <code>python build.py --installer</code></span></li>
+      <li><span class="plat">Linux / any</span> <span class="file">run from source — see below</span></li>
+    </ul>
+    <p class="note">macOS builds are code-signed with a Developer ID and notarized by Apple — the <code>.dmg</code> opens on double-click with no Gatekeeper warning. Pick the <code>arm64</code> build on Apple Silicon, <code>x86_64</code> on Intel (check with <code>uname -m</code>).</p>
+  </section>
+
+  <section class="block" id="default-app">
+    <h2>Set as the default mail-file viewer</h2>
+    <div class="cols">
+      <div class="panel">
+        <h3>macOS</h3>
+        <ol>
+          <li>Move <code>EMPViewer.app</code> to <code>/Applications</code> and open it once.</li>
+          <li>Select an <code>.eml</code> file in Finder → <strong>⌘I</strong> → <em>Open with</em> → <strong>EMPViewer</strong> → <em>Change All…</em></li>
+          <li>Repeat for <code>.msg</code> / <code>.pst</code> / <code>.ost</code>. Or run <code>packaging/macos/set-default.command</code> (uses <code>duti</code> if installed).</li>
+        </ol>
+      </div>
+      <div class="panel">
+        <h3>Windows</h3>
+        <ul>
+          <li><code>EMPViewer.exe --register</code> — register as a handler</li>
+          <li><code>EMPViewer.exe --set-default</code> — register + open <em>Settings ▸ Default apps</em></li>
+          <li><code>EMPViewer.exe --unregister</code> — remove</li>
+          <li>Windows won't silently take a type another app owns (Outlook owns <code>.msg</code>/<code>.pst</code>) — confirm the switch once in Default apps.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Full distribution &amp; default-handler guide (portable vs installer, Windows &amp; macOS, enterprise / GPO): <a href="https://github.com/erdemovali/EMPViewer/blob/main/docs/DAGITIM.md">docs/DAGITIM.md</a> (Turkish).</p>
+  </section>
+
+  <section class="block" id="build">
+    <h2>Build &amp; run from source</h2>
+<pre class="code"><span class="c"># run from source</span>
+python -m venv .venv
+source .venv/bin/activate        <span class="c"># Windows: .venv\Scripts\activate</span>
+pip install -r requirements.txt
+python main.py                    <span class="c"># empty window</span>
+python main.py path/to/mail.eml   <span class="c"># open a file</span>
+
+<span class="c"># package a portable binary</span>
+python build.py                   <span class="c"># Windows -&gt; EMPViewer.exe   macOS -&gt; EMPViewer.app</span>
+python build.py --onedir          <span class="c"># faster cold start</span>
+python build.py --dmg             <span class="c"># macOS: also build a .dmg</span>
+python build.py --installer       <span class="c"># Windows: EMPViewer-Setup.exe via Inno Setup</span></pre>
+    <p class="note">No extra setup for any format — <code>.pst</code>/<code>.ost</code> are read by the built-in parser. <code>libpff-python</code> or a <code>readpst</code> binary, if present, are used in preference but are entirely optional.</p>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap frow">
+    <span>MIT licensed</span>
+    <a href="https://github.com/erdemovali/EMPViewer">GitHub</a>
+    <a href="https://github.com/erdemovali/EMPViewer/blob/main/README.md">README</a>
+    <a href="https://github.com/erdemovali/EMPViewer/blob/main/docs/DAGITIM.md">Distribution guide (TR)</a>
+    <a href="https://github.com/erdemovali/EMPViewer/releases/latest">Releases</a>
+  </div>
+</footer>
+
+</body>
+</html>
