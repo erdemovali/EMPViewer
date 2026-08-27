@@ -1,31 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Hardened-runtime entitlements for the signed EMPViewer.app.
-
-  Notarization requires the hardened runtime (`codesign --options runtime`).
-  A frozen CPython + PySide6 (Qt) bundle will not launch under the hardened
-  runtime without these:
-
-    disable-library-validation      load the bundle's own ad-hoc-signed
-                                    .so/.dylib files (PyInstaller extracts
-                                    dozens); without this the process is
-                                    killed at startup -> "app can't be opened".
-    allow-unsigned-executable-memory CPython bytecode / ctypes.
-    allow-jit                        CPython / Qt JIT-style allocations.
-    allow-dyld-environment-variables the PyInstaller bootstrap sets DYLD_* vars.
-
-  QtWebEngine is NOT used, so no WebEngine/helper entitlements are needed.
--->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>
