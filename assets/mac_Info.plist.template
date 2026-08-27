@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference fragment. build.py merges an equivalent structure into the generated
+  dist/EMPViewer.app/Contents/Info.plist automatically after PyInstaller runs.
+  Kept here so the document-type registration is reviewable in source.
+
+  CFBundleDocumentTypes is what makes Finder route a double-clicked .eml/.msg/
+  .pst/.ost to EMPViewer as a QFileOpenEvent.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.empviewer.app</string>
+    <key>CFBundleName</key>
+    <string>EMPViewer</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Mail message</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>app.icns</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>eml</string>
+                <string>msg</string>
+                <string>pst</string>
+                <string>ost</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

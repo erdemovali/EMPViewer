@@ -1,0 +1,70 @@
+name: Build macOS app
+
+# A macOS .app / .dmg can only be produced ON macOS (PyInstaller does not
+# cross-compile). This runs the build on GitHub's macOS runners so you don't
+# need a Mac. Trigger it manually from the Actions tab, or by pushing a v* tag.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon (arm64)
+            arch: arm64
+          - runner: macos-13   # Intel (x86_64)
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build .app and .dmg
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python build.py --dmg
+
+      - name: Zip the .app (preserves bundle symlinks)
+        run: |
+          cd dist
+          ditto -c -k --keepParent EMPViewer.app "EMPViewer-macos-${{ matrix.arch }}.zip"
+
+      - name: Upload .app
+        uses: actions/upload-artifact@v4
+        with:
+          name: EMPViewer-macos-${{ matrix.arch }}-app
+          path: dist/EMPViewer-macos-${{ matrix.arch }}.zip
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: EMPViewer-macos-${{ matrix.arch }}-dmg
+          path: dist/EMPViewer.dmg
+          if-no-files-found: warn
+
+  # Optional: attach the artifacts to a GitHub Release when built from a v* tag.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

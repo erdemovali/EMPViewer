@@ -1,0 +1,30 @@
+# --- Runtime -------------------------------------------------------------------
+PySide6>=6.6
+
+# .msg parsing (headers, HTML/text body, embedded images, attachments)
+extract-msg>=0.48
+
+# .pst / .ost parsing - PICK ONE backend (the app auto-detects whichever is present):
+#
+#   1. libpff C bindings - fastest, most robust. Prebuilt wheels exist for
+#      CPython 3.9-3.13. Uncomment if your interpreter is in that range:
+# libpff-python>=20231205
+#
+#   2. OR install the tiny 'readpst' CLI from libpst (no Python build needed):
+#        Windows:  choco install libpst
+#        macOS:    brew install libpst
+#        Linux:    apt install libpst   /   dnf install libpst
+#      The ReadpstBackend extracts to .eml and reuses the built-in EML parser.
+
+# Robust date parsing for .msg / readpst fallbacks
+python-dateutil>=2.8
+
+# --- Optional: RTF-only message bodies ------------------------------------
+compressed-rtf>=1.0.6
+striprtf>=0.0.26
+
+# --- Packaging -----------------------------------------------------------
+pyinstaller>=6.3
+
+# --- Development / tests ------------------------------------------------
+pytest>=8.0
