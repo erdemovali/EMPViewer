@@ -50,6 +50,10 @@ class SettingsDialog(QDialog):
         self.auto_remote.setChecked(bool(s.value("viewer/autoLoadRemote", False, type=bool)))
         form.addRow("", self.auto_remote)
 
+        self.check_updates = QCheckBox(self.tr("Check for updates on startup"))
+        self.check_updates.setChecked(bool(s.value("updates/checkOnStartup", False, type=bool)))
+        form.addRow("", self.check_updates)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -67,4 +71,5 @@ class SettingsDialog(QDialog):
             parent.sync_theme_menu(mode)
         s.setValue("appearance/language", self.lang_combo.currentData())
         s.setValue("viewer/autoLoadRemote", self.auto_remote.isChecked())
+        s.setValue("updates/checkOnStartup", self.check_updates.isChecked())
         self.accept()

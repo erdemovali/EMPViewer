@@ -7,3 +7,6 @@ Generated at build time by build.py from ../emplogo.png (the single logo source)
 These are NOT committed - `build.py ensure_icons()` re-creates them on every
 build. If emplogo.png can't be read, build.py falls back to a plain brand-blue
 tile so the build still succeeds.
+
+THIRD_PARTY_LICENSES.txt IS committed and is bundled into the app (shown under
+Help > About > Licenses). Keep it in step with requirements.txt.

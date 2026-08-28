@@ -1,0 +1,66 @@
+EMPViewer - Third-party components
+==================================
+
+EMPViewer itself is licensed under the MIT License (see the LICENSE file).
+The application bundles the components below. Their licenses are summarised
+here; follow the links for the full texts.
+
+
+Qt for Python (PySide6) and shiboken6
+-------------------------------------
+Copyright (C) The Qt Company Ltd. and contributors.
+Used under the GNU Lesser General Public License, version 3 (LGPLv3).
+    https://www.gnu.org/licenses/lgpl-3.0.html   (LGPLv3)
+    https://www.gnu.org/licenses/gpl-3.0.html    (GPLv3, referenced by LGPLv3)
+Qt source code and the exact framework versions used are available from
+    https://download.qt.io/official_releases/QtForPython/
+In the folder ("--onedir") build the Qt libraries are separate files and may
+be replaced by the user, as LGPLv3 section 4 requires.
+
+
+extract-msg  -  GNU General Public License, version 3 (GPLv3)
+------------------------------------------------------------
+Copyright (C) The Elemental of Destruction and contributors.
+    https://github.com/TeamMsgExtractor/msg-extractor
+    https://www.gnu.org/licenses/gpl-3.0.html
+Because a GPLv3 component is included, the compiled EMPViewer binaries are
+distributed under the terms of the GPLv3. EMPViewer's own source code remains
+MIT-licensed and the complete corresponding source is published at
+    https://github.com/erdemovali/EMPViewer
+extract-msg pulls in: RTFDE (LGPLv3), olefile (BSD-2-Clause),
+compressed-rtf (MIT), ebcdic (Apache-2.0), red-black-tree-mod (MIT).
+
+
+python-dateutil  -  Apache-2.0 / BSD-3-Clause (dual)
+--------------------------------------------------
+Copyright (C) Gustavo Niemeyer and contributors.
+    https://github.com/dateutil/dateutil
+Bundles the IANA time zone database (tzdata, public domain / see tz-link).
+
+
+striprtf  -  BSD-3-Clause
+-----------------------
+Copyright (C) Joshy Cyriac and contributors.
+    https://github.com/joshy/striprtf
+
+
+compressed-rtf  -  MIT
+--------------------
+Copyright (C) Dmitry Alimov.
+    https://github.com/delimitry/compressed_rtf
+
+
+six  -  MIT
+---------
+Copyright (C) Benjamin Peterson.
+    https://github.com/benjaminp/six
+
+
+Python standard library  -  Python Software Foundation License
+------------------------------------------------------------
+    https://docs.python.org/3/license.html
+
+
+To review the license of any bundled Python package precisely, run
+    pip show <package>
+against the versions pinned in requirements.txt.

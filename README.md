@@ -136,9 +136,18 @@ Actions workflows listed above.
 
 This program does not transfer any information to other networked systems unless
 requested by the user or the person installing or operating it. Remote content
-in messages is blocked until it is loaded explicitly. See
+in messages is blocked until it is loaded explicitly. The only outbound request
+is an optional update check (Help > Check for Updates, or a Preferences opt-in)
+that fetches the latest release tag from the GitHub API. See
 [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+EMPViewer's own source code is under the MIT License (see [LICENSE](LICENSE)).
+
+Packaged builds bundle third-party components, including **extract-msg (GPLv3)**
+and **Qt / PySide6 (LGPLv3)**. Because a GPLv3 component is linked in, the
+compiled binaries are distributed under the GPLv3; the complete corresponding
+source is this repository. Full details and links are in
+[`assets/THIRD_PARTY_LICENSES.txt`](assets/THIRD_PARTY_LICENSES.txt) and in the
+app under Help > About > Licenses.

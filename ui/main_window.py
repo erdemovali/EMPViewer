@@ -33,12 +33,15 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
     QThreadPool,
+    QTimer,
+    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QColor,
+    QDesktopServices,
     QKeySequence,
     QPainter,
     QPalette,
@@ -242,6 +245,9 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._restore_settings()
 
+        if QSettings().value("updates/checkOnStartup", False, type=bool):
+            QTimer.singleShot(1500, lambda: self._check_updates(manual=False))
+
     # ------------------------------------------------------------------ #
     # UI construction
     # ------------------------------------------------------------------ #
@@ -393,6 +399,9 @@ class MainWindow(QMainWindow):
             self._theme_actions[mode] = act
 
         help_menu = mb.addMenu(self.tr("&Help"))
+        help_menu.addAction(self.tr("Check for &Updates…")).triggered.connect(
+            lambda: self._check_updates(manual=True)
+        )
         help_menu.addAction(self.tr("&About EMPViewer")).triggered.connect(self._about)
 
         # Keyboard shortcuts that are not tied to a menu item.
@@ -783,22 +792,56 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         from ui.settings_dialog import SettingsDialog
 
-        dlg = SettingsDialog(self)
-        dlg.exec()
+        SettingsDialog(self).exec()
+
+    def _check_updates(self, *, manual: bool) -> None:
+        from utils.updates import UpdateChecker
+
+        self._update_checker = UpdateChecker(self)  # keep a reference
+        self._update_checker.check(
+            lambda latest, newer, url: self._on_update_result(latest, newer, url, manual)
+        )
+
+    def _on_update_result(self, latest: str | None, newer: bool, url: str, manual: bool) -> None:
+        QSettings().setValue("updates/lastChecked", latest or "")
+        if newer:
+            box = QMessageBox(self)
+            box.setWindowTitle(self.tr("Updates"))
+            box.setText(self.tr("A new version is available: %s") % latest)
+            open_btn = box.addButton(self.tr("Open Download Page"), QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Close)
+            box.exec()
+            if box.clickedButton() is open_btn:
+                QDesktopServices.openUrl(QUrl(url))
+        elif manual and latest:
+            QMessageBox.information(self, self.tr("Updates"),
+                                   self.tr("You are running the latest version."))
+        elif manual:
+            QMessageBox.information(self, self.tr("Updates"),
+                                   self.tr("Could not check for updates."))
 
     def _about(self) -> None:
         from utils.branding import logo_pixmap
+        from utils.updates import current_version
 
         box = QMessageBox(self)
         box.setWindowTitle(self.tr("About EMPViewer"))
         box.setIconPixmap(logo_pixmap(72))
         box.setText(
-            "<h3>EMPViewer</h3>"
+            f"<h3>EMPViewer {current_version()}</h3>"
             "<p>" + self.tr("A viewer for .eml, .msg, .pst and .ost mail files.") + "</p>"
             "<p>" + self.tr("Drag files onto the window, or set EMPViewer as the default "
                             "handler for these file types.") + "</p>"
+            "<p>" + self.tr("EMPViewer is MIT-licensed. Packaged builds include GPLv3 and "
+                            "LGPLv3 components — see Licenses.") + "</p>"
         )
+        licenses_btn = box.addButton(self.tr("Licenses"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
         box.exec()
+        if box.clickedButton() is licenses_btn:
+            from ui.license_dialog import LicenseDialog
+
+            LicenseDialog(self).exec()
 
     def _warn(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)

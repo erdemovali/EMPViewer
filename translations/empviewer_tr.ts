@@ -43,236 +43,286 @@ Bir kopya şuraya kaydedildi:</translation>
     </message>
 </context>
 <context>
+    <name>LicenseDialog</name>
+    <message>
+        <location filename="../ui/license_dialog.py" line="26" />
+        <source>Licenses</source>
+        <translation>Lisanslar</translation>
+    </message>
+</context>
+<context>
     <name>MainWindow</name>
     <message>
-        <location filename="../ui/main_window.py" line="250" />
+        <location filename="../ui/main_window.py" line="256" />
         <source>Library</source>
         <extracomment>Emitted whenever a load fails, so tests can observe it without a dialog.</extracomment>
         <translation>Kitaplık</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="282" />
+        <location filename="../ui/main_window.py" line="288" />
         <source>Filter by sender or subject…</source>
         <translation>Gönderen veya konuya göre süz…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="325" />
+        <location filename="../ui/main_window.py" line="331" />
         <source>Cancel</source>
         <translation>İptal</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="326" />
+        <location filename="../ui/main_window.py" line="332" />
         <source>Stop the current operation</source>
         <translation>Geçerli işlemi durdur</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="329" />
-        <location filename="../ui/main_window.py" line="663" />
+        <location filename="../ui/main_window.py" line="335" />
+        <location filename="../ui/main_window.py" line="672" />
         <source>Ready</source>
         <translation>Hazır</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="337" />
+        <location filename="../ui/main_window.py" line="343" />
         <source>&amp;File</source>
         <translation>&amp;Dosya</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="338" />
+        <location filename="../ui/main_window.py" line="344" />
         <source>&amp;Open…</source>
         <translation>&amp;Aç…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="342" />
+        <location filename="../ui/main_window.py" line="348" />
         <source>Open &amp;Recent</source>
         <translation>&amp;Son Kullanılanlar</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="345" />
+        <location filename="../ui/main_window.py" line="351" />
         <source>&amp;Close Item</source>
         <translation>Öğeyi &amp;Kapat</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="349" />
+        <location filename="../ui/main_window.py" line="355" />
         <source>Save &amp;All Attachments…</source>
         <translation>&amp;Tüm Ekleri Kaydet…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="353" />
+        <location filename="../ui/main_window.py" line="359" />
         <source>&amp;Preferences…</source>
         <translation>&amp;Tercihler…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="359" />
+        <location filename="../ui/main_window.py" line="365" />
         <source>&amp;Quit</source>
         <translation>Çı&amp;kış</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="363" />
+        <location filename="../ui/main_window.py" line="369" />
         <source>&amp;Message</source>
         <translation>&amp;İleti</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="364" />
+        <location filename="../ui/main_window.py" line="370" />
         <source>Save Message &amp;As…</source>
         <translation>İletiyi &amp;Farklı Kaydet…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="365" />
+        <location filename="../ui/main_window.py" line="371" />
         <source>Export to &amp;PDF…</source>
         <translation>&amp;PDF olarak dışa aktar…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="366" />
+        <location filename="../ui/main_window.py" line="372" />
         <source>&amp;Print…</source>
         <translation>Ya&amp;zdır…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="370" />
+        <location filename="../ui/main_window.py" line="376" />
         <source>&amp;Copy</source>
         <translation>K&amp;opyala</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="371" />
+        <location filename="../ui/main_window.py" line="377" />
         <source>Body Text</source>
         <translation>Gövde Metni</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="372" />
+        <location filename="../ui/main_window.py" line="378" />
         <source>Headers</source>
         <translation>Başlıklar</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="374" />
+        <location filename="../ui/main_window.py" line="380" />
         <source>Show Plain &amp;Text</source>
         <translation>Düz &amp;Metni Göster</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="377" />
+        <location filename="../ui/main_window.py" line="383" />
         <source>Show &amp;Headers / Source</source>
         <translation>&amp;Başlıkları / Kaynağı Göster</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="381" />
+        <location filename="../ui/main_window.py" line="387" />
         <source>&amp;View</source>
         <translation>&amp;Görünüm</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="382" />
+        <location filename="../ui/main_window.py" line="388" />
         <source>&amp;Theme</source>
         <translation>&amp;Tema</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="395" />
+        <location filename="../ui/main_window.py" line="401" />
         <source>&amp;Help</source>
         <translation>&amp;Yardım</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="396" />
+        <location filename="../ui/main_window.py" line="402" />
+        <source>Check for &amp;Updates…</source>
+        <translation>&amp;Güncellemeleri Denetle…</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="405" />
         <source>&amp;About EMPViewer</source>
         <translation>EMPViewer &amp;Hakkında</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="437" />
-        <location filename="../ui/main_window.py" line="507" />
+        <location filename="../ui/main_window.py" line="446" />
+        <location filename="../ui/main_window.py" line="516" />
         <source>Could not open file</source>
         <translation>Dosya açılamadı</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="438" />
+        <location filename="../ui/main_window.py" line="447" />
         <source>'%s' is not a supported mail file.</source>
         <translation>'%s' desteklenen bir posta dosyası değil.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="450" />
+        <location filename="../ui/main_window.py" line="459" />
         <source>Opening %s…</source>
         <translation>%s açılıyor…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="481" />
+        <location filename="../ui/main_window.py" line="490" />
         <source>Open</source>
         <translation>Aç</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="481" />
+        <location filename="../ui/main_window.py" line="490" />
         <source>Unknown result type from parser.</source>
         <translation>Ayrıştırıcıdan bilinmeyen sonuç türü.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="484" />
+        <location filename="../ui/main_window.py" line="493" />
         <source>Opened %s</source>
         <translation>%s açıldı</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="549" />
+        <location filename="../ui/main_window.py" line="558" />
         <source>Loading %s…</source>
         <translation>%s yükleniyor…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../ui/main_window.py" line="559" />
+        <location filename="../ui/main_window.py" line="568" />
         <source>%n message(s)</source>
         <translation>
             <numerusform>%n ileti</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="563" />
+        <location filename="../ui/main_window.py" line="572" />
         <source>Folder</source>
         <translation>Klasör</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="572" />
+        <location filename="../ui/main_window.py" line="581" />
         <source>Opening message…</source>
         <translation>İleti açılıyor…</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="575" />
+        <location filename="../ui/main_window.py" line="584" />
         <source>Message</source>
         <translation>İleti</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="625" />
+        <location filename="../ui/main_window.py" line="634" />
         <source>Close</source>
         <translation>Kapat</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="673" />
+        <location filename="../ui/main_window.py" line="682" />
         <source>Cancelled</source>
         <translation>İptal edildi</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="692" />
+        <location filename="../ui/main_window.py" line="701" />
         <source>Open mail files</source>
         <translation>Posta dosyalarını aç</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="694" />
+        <location filename="../ui/main_window.py" line="703" />
         <source>Mail files (*.eml *.msg *.pst *.ost);;All files (*)</source>
         <translation>Posta dosyaları (*.eml *.msg *.pst *.ost);;Tüm dosyalar (*)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="721" />
+        <location filename="../ui/main_window.py" line="730" />
         <source>(no recent files)</source>
         <translation>(son kullanılan dosya yok)</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="729" />
+        <location filename="../ui/main_window.py" line="738" />
         <source>Clear Recent Files</source>
         <translation>Son Kullanılanları Temizle</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="793" />
+        <location filename="../ui/main_window.py" line="809" />
+        <location filename="../ui/main_window.py" line="817" />
+        <location filename="../ui/main_window.py" line="820" />
+        <source>Updates</source>
+        <translation>Güncellemeler</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="810" />
+        <source>A new version is available: %s</source>
+        <translation>Yeni bir sürüm var: %s</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="811" />
+        <source>Open Download Page</source>
+        <translation>İndirme Sayfasını Aç</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="818" />
+        <source>You are running the latest version.</source>
+        <translation>En son sürümü kullanıyorsunuz.</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="821" />
+        <source>Could not check for updates.</source>
+        <translation>Güncellemeler denetlenemedi.</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="828" />
         <source>About EMPViewer</source>
         <translation>EMPViewer Hakkında</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="797" />
+        <location filename="../ui/main_window.py" line="832" />
         <source>A viewer for .eml, .msg, .pst and .ost mail files.</source>
         <translation>.eml, .msg, .pst ve .ost posta dosyaları için bir görüntüleyici.</translation>
     </message>
     <message>
-        <location filename="../ui/main_window.py" line="798" />
+        <location filename="../ui/main_window.py" line="833" />
         <source>Drag files onto the window, or set EMPViewer as the default handler for these file types.</source>
         <translation>Dosyaları pencereye sürükleyin ya da EMPViewer'ı bu dosya türleri için varsayılan uygulama yapın.</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="835" />
+        <source>EMPViewer is MIT-licensed. Packaged builds include GPLv3 and LGPLv3 components — see Licenses.</source>
+        <translation>EMPViewer MIT lisanslıdır. Paketlenmiş sürümler GPLv3 ve LGPLv3 bileşenleri içerir — bkz. Lisanslar.</translation>
+    </message>
+    <message>
+        <location filename="../ui/main_window.py" line="838" />
+        <source>Licenses</source>
+        <translation>Lisanslar</translation>
     </message>
 </context>
 <context>
@@ -306,6 +356,11 @@ Bir kopya şuraya kaydedildi:</translation>
         <location filename="../ui/settings_dialog.py" line="49" />
         <source>Load remote content in messages automatically</source>
         <translation>İletilerdeki uzak içeriği otomatik yükle</translation>
+    </message>
+    <message>
+        <location filename="../ui/settings_dialog.py" line="53" />
+        <source>Check for updates on startup</source>
+        <translation>Açılışta güncelleme denetle</translation>
     </message>
 </context>
 <context>
