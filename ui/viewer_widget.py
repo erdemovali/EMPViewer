@@ -13,8 +13,8 @@ import html as _html
 import re
 from typing import Iterable
 
-from PySide6.QtCore import QByteArray, QRect, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -22,12 +22,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QLayoutItem,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -230,6 +232,7 @@ class ViewerWidget(QWidget):
         root.addWidget(self._build_remote_banner())
         self.browser = RemoteBlockingBrowser(self)
         self.browser.remoteContentBlocked.connect(self._on_remote_blocked)
+        root.addWidget(self._build_find_bar())
         root.addWidget(self.browser, 1)
         root.addWidget(self._build_attachment_bar())
 
@@ -274,6 +277,49 @@ class ViewerWidget(QWidget):
         self.remote_banner.hide()
         return self.remote_banner
 
+    def _build_find_bar(self) -> QWidget:
+        bar = QFrame()
+        bar.setObjectName("FindBar")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(4)
+
+        self.find_input = QLineEdit()
+        self.find_input.setPlaceholderText("Find in message…")
+        self.find_input.setClearButtonEnabled(True)
+        self.find_input.textChanged.connect(lambda: self._find(forward=True, incremental=True))
+        self.find_input.returnPressed.connect(lambda: self._find(forward=True))
+        self.find_input.installEventFilter(self)
+
+        self._find_status = QLabel("")
+        self._find_status.setMinimumWidth(72)
+
+        btn_prev = QToolButton()
+        btn_prev.setText("▲")
+        btn_prev.setAutoRaise(True)
+        btn_prev.setToolTip("Previous match")
+        btn_prev.clicked.connect(lambda: self._find(forward=False))
+        btn_next = QToolButton()
+        btn_next.setText("▼")
+        btn_next.setAutoRaise(True)
+        btn_next.setToolTip("Next match")
+        btn_next.clicked.connect(lambda: self._find(forward=True))
+        btn_close = QToolButton()
+        btn_close.setText("✕")
+        btn_close.setAutoRaise(True)
+        btn_close.setToolTip("Close (Esc)")
+        btn_close.clicked.connect(self.close_find)
+
+        lay.addWidget(self.find_input, 1)
+        lay.addWidget(self._find_status)
+        lay.addWidget(btn_prev)
+        lay.addWidget(btn_next)
+        lay.addWidget(btn_close)
+
+        bar.hide()
+        self.find_bar = bar
+        return bar
+
     def _build_attachment_bar(self) -> QWidget:
         self.attach_area = QScrollArea()
         self.attach_area.setObjectName("AttachmentBar")
@@ -298,6 +344,7 @@ class ViewerWidget(QWidget):
             "Select a message to read it here.</div>"
         )
         self.remote_banner.hide()
+        self.close_find()
         self._clear_attachments()
 
     def set_message(self, message: EmailMessage) -> None:
@@ -305,6 +352,7 @@ class ViewerWidget(QWidget):
         self._had_remote = False
         self.browser.allow_remote = False
         self.remote_banner.hide()
+        self.close_find()
 
         self.lbl_subject.setText(_esc(message.display_name))
         self.lbl_meta.setText(self._meta_html(message))
@@ -359,6 +407,61 @@ class ViewerWidget(QWidget):
         self.remote_banner.hide()
         if self._message is not None:
             self._render_body(self._message)
+
+    # -- find in message ---------------------------------------- #
+    def open_find(self) -> None:
+        self.find_bar.show()
+        self.find_input.setFocus()
+        self.find_input.selectAll()
+
+    def close_find(self) -> None:
+        self.find_bar.hide()
+        self._find_status.setText("")
+        cursor = self.browser.textCursor()
+        cursor.clearSelection()
+        self.browser.setTextCursor(cursor)
+
+    def _find(self, *, forward: bool = True, incremental: bool = False) -> None:
+        text = self.find_input.text()
+        if not text:
+            self._find_status.setText("")
+            cursor = self.browser.textCursor()
+            cursor.clearSelection()
+            self.browser.setTextCursor(cursor)
+            return
+
+        flags = QTextDocument.FindFlag(0)
+        if not forward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        if incremental:
+            # Re-search from the start of the current match so each keystroke
+            # keeps extending the same hit instead of skipping ahead.
+            cursor = self.browser.textCursor()
+            cursor.setPosition(cursor.selectionStart())
+            self.browser.setTextCursor(cursor)
+
+        found = self.browser.find(text, flags)
+        if not found:
+            cursor = self.browser.textCursor()
+            cursor.movePosition(
+                QTextCursor.MoveOperation.Start if forward else QTextCursor.MoveOperation.End
+            )
+            self.browser.setTextCursor(cursor)
+            found = self.browser.find(text, flags)
+        self._find_status.setText("" if found else "No matches")
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if obj is self.find_input and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Escape:
+                self.close_find()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and (
+                event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            ):
+                self._find(forward=False)
+                return True
+        return super().eventFilter(obj, event)
 
     # -- attachments -------------------------------------------- #
     def _clear_attachments(self) -> None:

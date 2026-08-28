@@ -25,10 +25,12 @@ from typing import Any
 from PySide6.QtCore import (
     QAbstractTableModel,
     QEvent,
+    QItemSelectionModel,
     QModelIndex,
     QObject,
     QRect,
     QSettings,
+    QSortFilterProxyModel,
     Qt,
     QThreadPool,
     Signal,
@@ -41,12 +43,14 @@ from PySide6.QtGui import (
     QPainter,
     QPalette,
     QPen,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -76,6 +80,9 @@ from utils.workers import (
 )
 
 _ITEM_ROLE = Qt.ItemDataRole.UserRole
+_SORT_ROLE = Qt.ItemDataRole.UserRole + 1
+
+MAX_RECENT = 10
 
 
 # --------------------------------------------------------------------------- #
@@ -104,14 +111,21 @@ class EmailListModel(QAbstractTableModel):
         if not index.isValid():
             return None
         stub = self._rows[index.row()]
+        col = index.column()
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
-            col = index.column()
             if col == 0:
                 return stub.sender or "(unknown sender)"
             if col == 1:
                 return stub.display_subject
             if col == 2:
                 return _fmt_date(stub.date)
+        if role == _SORT_ROLE:
+            if col == 0:
+                return (stub.sender or "").lower()
+            if col == 1:
+                return stub.display_subject.lower()
+            if col == 2:
+                return stub.date.timestamp() if stub.date else float("-inf")
         if role == _ITEM_ROLE:
             return stub
         return None
@@ -128,6 +142,30 @@ class EmailListModel(QAbstractTableModel):
 
 def _fmt_date(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+
+
+class MailFilterProxy(QSortFilterProxyModel):
+    """Filters the message list on sender + subject; sorts via ``_SORT_ROLE``."""
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.setSortRole(_SORT_ROLE)
+        self.setDynamicSortFilter(True)
+        self._needle = ""
+
+    def set_needle(self, text: str) -> None:
+        self._needle = (text or "").strip().lower()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, row: int, parent: QModelIndex) -> bool:  # noqa: N802
+        if not self._needle:
+            return True
+        model = self.sourceModel()
+        for col in (0, 1):
+            value = model.index(row, col, parent).data(Qt.ItemDataRole.DisplayRole)
+            if value and self._needle in str(value).lower():
+                return True
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -219,12 +257,16 @@ class MainWindow(QMainWindow):
         self.tree.itemEntered.connect(lambda *_: self.tree.viewport().update())
         self.tree.currentItemChanged.connect(self._on_tree_selection)
 
-        self.table = QTableView()
         self.list_model = EmailListModel(self)
-        self.table.setModel(self.list_model)
+        self.proxy = MailFilterProxy(self)
+        self.proxy.setSourceModel(self.list_model)
+
+        self.table = QTableView()
+        self.table.setModel(self.proxy)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setSortingEnabled(False)
+        self.table.setSortingEnabled(True)
+        self.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         hh = self.table.horizontalHeader()
@@ -234,14 +276,26 @@ class MainWindow(QMainWindow):
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(0, 220)
         self.table.selectionModel().currentRowChanged.connect(self._on_table_row)
+
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filter by sender or subject…")
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.textChanged.connect(self.proxy.set_needle)
+
         # The message list only makes sense for a PST/OST folder; for a single
         # .eml/.msg it is dead space, so it starts hidden and is shown on demand.
-        self.table.hide()
+        self._list_panel = QWidget()
+        list_lay = QVBoxLayout(self._list_panel)
+        list_lay.setContentsMargins(0, 0, 0, 0)
+        list_lay.setSpacing(2)
+        list_lay.addWidget(self.filter_edit)
+        list_lay.addWidget(self.table)
+        self._list_panel.hide()
 
         self.viewer = ViewerWidget()
 
         right_split = QSplitter(Qt.Orientation.Vertical)
-        right_split.addWidget(self.table)
+        right_split.addWidget(self._list_panel)
         right_split.addWidget(self.viewer)
         right_split.setStretchFactor(0, 0)
         right_split.setStretchFactor(1, 1)
@@ -278,6 +332,9 @@ class MainWindow(QMainWindow):
         act_open.setShortcut(QKeySequence.StandardKey.Open)
         act_open.triggered.connect(self._choose_files)
 
+        self._recent_menu = file_menu.addMenu("Open &Recent")
+        self._rebuild_recent_menu()
+
         self._act_close = file_menu.addAction("&Close Item")
         self._act_close.setShortcut(QKeySequence("Ctrl+W"))
         self._act_close.triggered.connect(self._close_current)
@@ -305,6 +362,11 @@ class MainWindow(QMainWindow):
         help_menu = mb.addMenu("&Help")
         help_menu.addAction("&About EMPViewer").triggered.connect(self._about)
 
+        # Keyboard shortcuts that are not tied to a menu item.
+        QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(self._focus_find)
+        QShortcut(QKeySequence("Alt+Down"), self).activated.connect(lambda: self._step_message(1))
+        QShortcut(QKeySequence("Alt+Up"), self).activated.connect(lambda: self._step_message(-1))
+
     # ------------------------------------------------------------------ #
     # Settings
     # ------------------------------------------------------------------ #
@@ -319,12 +381,16 @@ class MainWindow(QMainWindow):
         sizes = s.value("window/mainSplit")
         if sizes:
             self._main_split.setSizes([int(x) for x in sizes])
+        rsizes = s.value("window/rightSplit")
+        if rsizes:
+            self._right_split.setSizes([int(x) for x in rsizes])
 
     def _persist_settings(self) -> None:
         s = QSettings()
         s.setValue("window/geometry", self.saveGeometry())
         s.setValue("window/state", self.saveState())
         s.setValue("window/mainSplit", self._main_split.sizes())
+        s.setValue("window/rightSplit", self._right_split.sizes())
 
     # ------------------------------------------------------------------ #
     # Public entry points
@@ -360,6 +426,7 @@ class MainWindow(QMainWindow):
     def _on_loaded(self, path: str, result: Any) -> None:
         self._clear_busy()
         self._open_paths.add(path)
+        self._push_recent(path)
 
         if isinstance(result, EmailMessage):
             item = QTreeWidgetItem([Path(path).name])
@@ -419,25 +486,30 @@ class MainWindow(QMainWindow):
             self._active_backend = None
             self._show_message_list(False)
             self.viewer.set_message(data["message"])
+            self._update_title(data["message"].display_name)
         elif kind == "pstfolder":
             self._active_backend = data["doc"].backend
             self._show_message_list(True)
             self._load_folder(data["doc"], data["folder_id"], data["folder_path"])
+            self._update_title(data.get("folder_path"))
         else:  # pstroot / anything else
             self.list_model.set_stubs([])
             self._active_backend = None
             self._show_message_list(False)
             self.viewer.clear()
+            self._update_title(None)
 
     def _show_message_list(self, visible: bool) -> None:
-        if visible and not self.table.isVisible():
-            self.table.show()
-            self._right_split.setSizes([240, max(360, self._right_split.height() - 240)])
-        elif not visible and self.table.isVisible():
-            self.table.hide()
+        if visible and not self._list_panel.isVisible():
+            self._list_panel.show()
+            if self._list_panel.height() < 60:
+                self._right_split.setSizes([260, max(360, self._right_split.height() - 260)])
+        elif not visible and self._list_panel.isVisible():
+            self._list_panel.hide()
 
     def _load_folder(self, doc: PstDocument, folder_id, folder_path: str) -> None:
         self.list_model.set_stubs([])
+        self.filter_edit.clear()
         self.viewer.clear()
         self._set_busy(f"Loading {folder_path}…")
         task = ListMessagesRunnable(doc.backend, folder_id)
@@ -458,7 +530,8 @@ class MainWindow(QMainWindow):
     def _on_table_row(self, current: QModelIndex, _previous: QModelIndex) -> None:
         if not current.isValid() or self._active_backend is None:
             return
-        stub = self.list_model.stub_at(current.row())
+        source = self.proxy.mapToSource(current)
+        stub = self.list_model.stub_at(source.row())
         if stub is None:
             return
         self._set_busy("Opening message…")
@@ -471,6 +544,7 @@ class MainWindow(QMainWindow):
     def _on_message_loaded(self, message: EmailMessage) -> None:
         self._clear_busy()
         self.viewer.set_message(message)
+        self._update_title(message.display_name)
 
     # ------------------------------------------------------------------ #
     # Close / housekeeping
@@ -505,6 +579,7 @@ class MainWindow(QMainWindow):
         self.viewer.clear()
         self._show_message_list(False)
         self._active_backend = None
+        self._update_title(None)
 
     def _tree_context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
@@ -574,6 +649,68 @@ class MainWindow(QMainWindow):
             self.open_path(p)
         if paths:
             s.setValue("io/lastDir", str(Path(paths[0]).parent))
+
+    # -- recent files ------------------------------------------------- #
+    def _recent_paths(self) -> list[str]:
+        raw = QSettings().value("io/recentFiles", [])
+        if isinstance(raw, str):
+            return [raw]
+        return [str(p) for p in raw] if raw else []
+
+    def _push_recent(self, path: str) -> None:
+        path = str(Path(path))
+        items = [p for p in self._recent_paths() if p != path]
+        items.insert(0, path)
+        del items[MAX_RECENT:]
+        QSettings().setValue("io/recentFiles", items)
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self) -> None:
+        menu = self._recent_menu
+        menu.clear()
+        paths = [p for p in self._recent_paths() if Path(p).exists()]
+        if not paths:
+            act = menu.addAction("(no recent files)")
+            act.setEnabled(False)
+            return
+        for p in paths:
+            act = menu.addAction(Path(p).name)
+            act.setToolTip(p)
+            act.triggered.connect(lambda _checked=False, path=p: self.open_path(path))
+        menu.addSeparator()
+        menu.addAction("Clear Recent Files").triggered.connect(self._clear_recent)
+
+    def _clear_recent(self) -> None:
+        QSettings().remove("io/recentFiles")
+        self._rebuild_recent_menu()
+
+    # -- title / navigation ---------------------------------------- #
+    def _update_title(self, subject: str | None) -> None:
+        self.setWindowTitle(f"{subject} - EMPViewer" if subject else "EMPViewer")
+
+    def _step_message(self, delta: int) -> None:
+        if not self._list_panel.isVisible():
+            return
+        rows = self.proxy.rowCount()
+        if rows == 0:
+            return
+        sm = self.table.selectionModel()
+        cur = sm.currentIndex()
+        row = cur.row() if cur.isValid() else (-1 if delta > 0 else rows)
+        row = max(0, min(rows - 1, row + delta))
+        idx = self.proxy.index(row, 0)
+        sm.setCurrentIndex(
+            idx,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows,
+        )
+        self.table.scrollTo(idx)
+
+    def _focus_find(self) -> None:
+        if self._list_panel.isVisible() and not self.viewer.browser.hasFocus():
+            self.filter_edit.setFocus()
+            self.filter_edit.selectAll()
+        else:
+            self.viewer.open_find()
 
     def _set_theme(self, mode: theme.ThemeMode) -> None:
         from PySide6.QtWidgets import QApplication
