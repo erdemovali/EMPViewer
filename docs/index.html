@@ -110,11 +110,14 @@
 
   .formats { display: grid; gap: 12px; }
   .fmt {
-    display: grid; grid-template-columns: 90px 1fr; gap: 16px; align-items: start;
+    display: grid; grid-template-columns: 88px 1fr; gap: 16px; align-items: center;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 16px 20px;
   }
-  .fmt .ext { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .fmt-ico { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .fmt-ico img { width: 48px; height: 48px; display: block; }
+  .fmt-ico .exts { display: flex; gap: 4px; }
+  .fmt .ext { font-weight: 700; font-size: .82rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .fmt p { margin: 0; color: var(--muted); font-size: .9rem; }
 
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -220,15 +223,25 @@
     <h2>Formats</h2>
     <div class="formats">
       <div class="fmt">
-        <span class="ext">.eml</span>
+        <div class="fmt-ico">
+          <img src="icons/eml.png" width="48" height="48" alt=".eml file icon">
+          <span class="ext">.eml</span>
+        </div>
         <p>Standard-library <code>email</code> module — always available, zero dependencies.</p>
       </div>
       <div class="fmt">
-        <span class="ext">.msg</span>
+        <div class="fmt-ico">
+          <img src="icons/msg.png" width="48" height="48" alt=".msg file icon">
+          <span class="ext">.msg</span>
+        </div>
         <p><code>extract_msg</code>: headers, HTML/text body, inline images, attachments, RTF fallback.</p>
       </div>
       <div class="fmt">
-        <span class="ext">.pst / .ost</span>
+        <div class="fmt-ico">
+          <img src="icons/pst.png" width="48" height="48" alt=".pst file icon">
+          <img src="icons/ost.png" width="48" height="48" alt=".ost file icon">
+          <span class="exts"><span class="ext">.pst</span><span class="ext">.ost</span></span>
+        </div>
         <p>Built-in pure-Python reader (Unicode PST/OST; none / permute / cyclic encryption). Falls back to <code>libpff</code> or <code>readpst</code> if importable / on <code>PATH</code>. Modern profile-encrypted <code>.ost</code> is reported cleanly as unreadable rather than crashing.</p>
       </div>
     </div>

@@ -3,6 +3,13 @@
 A desktop viewer for `.eml`, `.msg`, `.pst`, `.ost`, `.mbox`, `.ics` and `.vcf`
 files. Windows and macOS. Built with Python and PySide6.
 
+<p>
+  <img src="icons/filetypes/eml_128.png" alt=".eml" width="46" height="46">
+  <img src="icons/filetypes/msg_128.png" alt=".msg" width="46" height="46">
+  <img src="icons/filetypes/pst_128.png" alt=".pst" width="46" height="46">
+  <img src="icons/filetypes/ost_128.png" alt=".ost" width="46" height="46">
+</p>
+
 Downloads: [Releases](https://github.com/erdemovali/EMPViewer/releases)
 
 ## Features
