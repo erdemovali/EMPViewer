@@ -194,6 +194,10 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Yakınlaştırmayı &amp;Sıfırla</translation>
     </message>
     <message>
+        <source>Group by &amp;Conversation</source>
+        <translation>Konuşmaya Göre &Grupla</translation>
+    </message>
+    <message>
         <source>&amp;Theme</source>
         <translation>&amp;Tema</translation>
     </message>
@@ -369,7 +373,7 @@ Bir kopya şuraya kaydedildi:</translation>
     <name>SettingsDialog</name>
     <message>
         <source>Preferences</source>
-        <extracomment>appearance/dateFormat values -&gt; label</extracomment>
+        <extracomment>appearance/dateFormat values -&gt; label Endonyms for the languages we might ship a catalogue for.</extracomment>
         <translation>Tercihler</translation>
     </message>
     <message>

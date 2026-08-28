@@ -19,6 +19,7 @@ Layout::
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -206,18 +207,46 @@ def _jsonable(value):
     return value
 
 
+_REPLY_PREFIX = re.compile(
+    r"^\s*(re|aw|fwd?|wg|sv|vs|ynt|ilt|il|rv|ref|res)\s*(\[\d+\])?\s*:\s*", re.IGNORECASE
+)
+
+
+def thread_key(subject: str) -> str:
+    """Normalised subject for grouping a conversation (strips Re:/Fwd:/… )."""
+
+    s = subject or ""
+    while True:
+        stripped = _REPLY_PREFIX.sub("", s)
+        if stripped == s:
+            break
+        s = stripped
+    return s.strip().lower()
+
+
 class MailFilterProxy(QSortFilterProxyModel):
-    """Filters the message list on sender + subject; sorts via ``_SORT_ROLE``."""
+    """Filters the message list on sender + subject; sorts via ``_SORT_ROLE``.
+
+    In "group by conversation" mode the primary sort key becomes the normalised
+    subject, so replies sit next to their originals (newest thread first,
+    newest-in-thread first).
+    """
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.setSortRole(_SORT_ROLE)
         self.setDynamicSortFilter(True)
         self._needle = ""
+        self._group = False
 
     def set_needle(self, text: str) -> None:
         self._needle = (text or "").strip().lower()
         self.invalidateFilter()
+
+    def set_group(self, on: bool) -> None:
+        self._group = bool(on)
+        self.invalidate()
+        self.sort(self.sortColumn(), self.sortOrder())
 
     def filterAcceptsRow(self, row: int, parent: QModelIndex) -> bool:  # noqa: N802
         if not self._needle:
@@ -228,6 +257,19 @@ class MailFilterProxy(QSortFilterProxyModel):
             if value and self._needle in str(value).lower():
                 return True
         return False
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:  # noqa: N802
+        if not self._group:
+            return super().lessThan(left, right)
+        ls = left.data(_ITEM_ROLE)
+        rs = right.data(_ITEM_ROLE)
+        if ls is None or rs is None:
+            return super().lessThan(left, right)
+        lk, rk = thread_key(ls.subject), thread_key(rs.subject)
+        if lk != rk:
+            return lk < rk  # keep a thread's messages contiguous
+        # Within a thread: newest first.
+        return (ls.date or datetime.min) > (rs.date or datetime.min)
 
 
 # --------------------------------------------------------------------------- #
@@ -526,6 +568,10 @@ class MainWindow(QMainWindow):
         act_zreset = view_menu.addAction(self.tr("&Reset Zoom"))
         act_zreset.setShortcut(QKeySequence("Ctrl+0"))
         act_zreset.triggered.connect(self.viewer.zoom_reset)
+        view_menu.addSeparator()
+        self._act_group = view_menu.addAction(self.tr("Group by &Conversation"))
+        self._act_group.setCheckable(True)
+        self._act_group.toggled.connect(self.proxy.set_group)
         view_menu.addSeparator()
         theme_menu = view_menu.addMenu(self.tr("&Theme"))
         group = QActionGroup(self)

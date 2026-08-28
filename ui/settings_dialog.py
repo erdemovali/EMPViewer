@@ -16,9 +16,29 @@ from PySide6.QtWidgets import (
 )
 
 from ui import theme
+from utils.helpers import resource_path
 
 #: appearance/dateFormat values -> label
 DATE_FORMATS = ("local", "iso", "rfc")
+
+#: Endonyms for the languages we might ship a catalogue for.
+_LANG_NAMES = {
+    "tr": "Türkçe", "de": "Deutsch", "fr": "Français", "es": "Español",
+    "it": "Italiano", "pt": "Português", "nl": "Nederlands", "ru": "Русский",
+}
+
+
+def _available_languages() -> list[tuple[str, str]]:
+    """``[("en", "English"), ("tr", "Türkçe"), …]`` from the bundled .qm files."""
+
+    langs = [("en", "English")]
+    try:
+        for qm in sorted(resource_path("translations").glob("empviewer_*.qm")):
+            code = qm.stem.split("_", 1)[1]
+            langs.append((code, _LANG_NAMES.get(code, code)))
+    except OSError:
+        pass
+    return langs
 
 
 class SettingsDialog(QDialog):
@@ -40,11 +60,10 @@ class SettingsDialog(QDialog):
 
         self.lang_combo = QComboBox()
         self.lang_combo.addItem(self.tr("Automatic (system)"), "auto")
-        self.lang_combo.addItem("English", "en")
-        self.lang_combo.addItem("Türkçe", "tr")
-        self.lang_combo.setCurrentIndex(
-            self.lang_combo.findData(str(s.value("appearance/language", "auto")))
-        )
+        for code, name in _available_languages():
+            self.lang_combo.addItem(name, code)
+        want = self.lang_combo.findData(str(s.value("appearance/language", "auto")))
+        self.lang_combo.setCurrentIndex(want if want >= 0 else 0)
         form.addRow(self.tr("Language:"), self.lang_combo)
 
         note = QLabel(self.tr("Language changes take effect after restart."))

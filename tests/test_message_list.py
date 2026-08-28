@@ -23,6 +23,7 @@ from ui.main_window import (  # noqa: E402
     COL_SUBJECT,
     EmailListModel,
     MailFilterProxy,
+    thread_key,
     _SORT_ROLE,
 )
 
@@ -97,3 +98,29 @@ def test_sort_by_date_descending_puts_newest_first():
     proxy.sort(COL_DATE, Qt.SortOrder.DescendingOrder)
     senders = [proxy.index(r, COL_SENDER).data() for r in range(proxy.rowCount())]
     assert senders == ["Bob <b@y.com>", "Alice <a@x.com>", "Carol"]
+
+
+def test_thread_key_strips_reply_prefixes():
+    assert thread_key("Re: Re: Weekly report") == "weekly report"
+    assert thread_key("FW: Fwd: Lunch") == "lunch"
+    assert thread_key("YNT: Toplantı") == "toplantı"  # Turkish "Re:"
+    assert thread_key("Plain subject") == "plain subject"
+
+
+def test_group_by_conversation_keeps_replies_together():
+    from datetime import datetime as _dt
+
+    m = EmailListModel()
+    m.set_stubs([
+        MessageStub(backend_id=1, sender="a", subject="Re: Budget", date=_dt(2024, 2, 1)),
+        MessageStub(backend_id=2, sender="b", subject="Apples", date=_dt(2024, 3, 1)),
+        MessageStub(backend_id=3, sender="c", subject="Budget", date=_dt(2024, 1, 1)),
+        MessageStub(backend_id=4, sender="d", subject="Apples", date=_dt(2024, 1, 15)),
+    ])
+    proxy = MailFilterProxy()
+    proxy.setSourceModel(m)
+    proxy.set_group(True)
+    proxy.sort(COL_DATE)
+    subjects = [proxy.index(r, COL_SUBJECT).data() for r in range(proxy.rowCount())]
+    # "Apples" rows contiguous; "Budget" + "Re: Budget" contiguous; newest first inside.
+    assert subjects == ["Apples", "Apples", "Re: Budget", "Budget"]
