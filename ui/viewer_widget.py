@@ -849,6 +849,11 @@ def _lookup_cid(by_cid: dict[str, Attachment], key: str) -> Attachment | None:
     return None
 
 
+#: Don't bake an inline image bigger than this into the HTML as a data: URI -
+#: a handful of multi-MB images can make setHtml() crawl.
+_MAX_INLINE_BYTES = 8 * 1024 * 1024
+
+
 def _inline_cid_images(html: str, by_cid: dict[str, Attachment]) -> str:
     """Replace ``cid:`` references with self-contained ``data:`` URIs."""
 
@@ -857,7 +862,7 @@ def _inline_cid_images(html: str, by_cid: dict[str, Attachment]) -> str:
 
     def repl(match: "re.Match[str]") -> str:
         att = _lookup_cid(by_cid, match.group(1))
-        if att is None or not att.data:
+        if att is None or not att.data or len(att.data) > _MAX_INLINE_BYTES:
             return match.group(0)
         mime = att.mime_type or "application/octet-stream"
         b64 = base64.b64encode(att.data).decode("ascii")

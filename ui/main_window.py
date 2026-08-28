@@ -533,10 +533,34 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    #: Confirm before opening a file bigger than this (MB), by extension group.
+    _BIG_FILE_MB = {".pst": 512, ".ost": 512, ".eml": 64, ".msg": 64}
+
+    def _too_big_to_open(self, path: str) -> bool:
+        p = Path(path)
+        limit_mb = QSettings().value("io/largeFileWarnMB", type=int) or self._BIG_FILE_MB.get(
+            p.suffix.lower(), 128
+        )
+        try:
+            size_mb = p.stat().st_size / (1024 * 1024)
+        except OSError:
+            return False
+        if size_mb < limit_mb:
+            return False
+        answer = QMessageBox.question(
+            self,
+            self.tr("Large file"),
+            self.tr("%s is %d MB. Opening it may take a while and use a lot of memory. Continue?")
+            % (p.name, round(size_mb)),
+        )
+        return answer != QMessageBox.StandardButton.Yes
+
     def open_path(self, path: str | Path) -> None:
         path = str(Path(path))
         if path in self._open_paths:
             self._select_top_level_by_path(path)
+            return
+        if self._too_big_to_open(path):
             return
 
         self._set_busy(self.tr("Opening %s…") % Path(path).name)

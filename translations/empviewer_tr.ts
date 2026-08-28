@@ -210,6 +210,15 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>&apos;%s&apos; desteklenen bir posta dosyası değil.</translation>
     </message>
     <message>
+        <source>Large file</source>
+        <extracomment>Confirm before opening a file bigger than this (MB), by extension group.</extracomment>
+        <translation>Büyük dosya</translation>
+    </message>
+    <message>
+        <source>%s is %d MB. Opening it may take a while and use a lot of memory. Continue?</source>
+        <translation>%s dosyası %d MB. Açılması biraz zaman alabilir ve çok bellek kullanabilir. Devam edilsin mi?</translation>
+    </message>
+    <message>
         <source>Opening %s…</source>
         <translation>%s açılıyor…</translation>
     </message>
