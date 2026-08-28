@@ -63,6 +63,39 @@ def test_per_sender_allowlist_unblocks_http(monkeypatch) -> None:
     assert hits == [1]
 
 
+def test_copy_body_strips_object_replacement_chars(monkeypatch) -> None:
+    from PySide6.QtGui import QGuiApplication
+
+    monkeypatch.setattr("ui.viewer_widget.QSettings", lambda *a, **k: _settings())
+    v = ViewerWidget()
+    cb = QGuiApplication.clipboard()
+
+    # Image-only HTML: QTextBrowser.toPlainText() is just U+FFFC runs, but the
+    # message has a real text/plain part -> that is what must be copied.
+    v.set_message(EmailMessage(
+        subject="s", sender="a@x",
+        body_html="<body><img src='cid:a'><img src='cid:b'></body>",
+        body_text="the real plain text",
+    ))
+    cb.clear()
+    v.copy_body()
+    assert cb.text() == "the real plain text"
+
+    # HTML text interleaved with an image: the U+FFFC is dropped, text kept.
+    v.set_message(EmailMessage(subject="s", sender="a@x",
+                               body_html="<p>Hello <img src='cid:x'> world</p>"))
+    cb.clear()
+    v.copy_body()
+    assert "￼" not in cb.text()
+    assert "Hello" in cb.text() and "world" in cb.text()
+
+    # Genuinely empty message: clipboard is left untouched.
+    cb.setText("SENTINEL")
+    v.set_message(EmailMessage(subject="s", sender="a@x"))
+    v.copy_body()
+    assert cb.text() == "SENTINEL"
+
+
 def test_zoom_by_persists_and_clamps(monkeypatch) -> None:
     store = _settings()
     monkeypatch.setattr("ui.viewer_widget.QSettings", lambda *a, **k: store)

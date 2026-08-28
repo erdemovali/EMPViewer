@@ -455,28 +455,28 @@ class ViewerWidget(QWidget):
     # -- rendering -------------------------------------------------- #
     @staticmethod
     def _meta_html(m: EmailMessage) -> str:
-        tr = lambda s: QCoreApplication.translate("ViewerWidget", s)  # noqa: E731
+        T = QCoreApplication.translate
         style = str(QSettings().value("appearance/dateFormat", "local"))
         rows: list[str] = []
         if m.sender:
-            rows.append(f"<b>{tr('From')}:</b> {_esc(m.sender)}")
+            rows.append(f"<b>{T('ViewerWidget', 'From')}:</b> {_esc(m.sender)}")
         if m.to:
-            rows.append(f"<b>{tr('To')}:</b> {_esc(', '.join(m.to))}")
+            rows.append(f"<b>{T('ViewerWidget', 'To')}:</b> {_esc(', '.join(m.to))}")
         if m.cc:
-            rows.append(f"<b>{tr('Cc')}:</b> {_esc(', '.join(m.cc))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Cc')}:</b> {_esc(', '.join(m.cc))}")
         if m.bcc:
-            rows.append(f"<b>{tr('Bcc')}:</b> {_esc(', '.join(m.bcc))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Bcc')}:</b> {_esc(', '.join(m.bcc))}")
         if m.date:
-            rows.append(f"<b>{tr('Date')}:</b> {_esc(format_datetime(m.date, style=style))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Date')}:</b> {_esc(format_datetime(m.date, style=style))}")
         if m.folder_path:
-            rows.append(f"<b>{tr('Folder')}:</b> {_esc(m.folder_path)}")
+            rows.append(f"<b>{T('ViewerWidget', 'Folder')}:</b> {_esc(m.folder_path)}")
         badges = []
         if m.is_signed:
-            badges.append(tr("signed"))
+            badges.append(T("ViewerWidget", "signed"))
         if m.is_encrypted:
-            badges.append(tr("encrypted"))
+            badges.append(T("ViewerWidget", "encrypted"))
         if badges:
-            rows.append(f"<b>{tr('Security')}:</b> \U0001F512 {_esc(', '.join(badges))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Security')}:</b> \U0001F512 {_esc(', '.join(badges))}")
         return "<br>".join(rows)
 
     _PRE = "white-space:pre-wrap;word-wrap:break-word;padding:12px;color:#1b1d21"
@@ -706,13 +706,50 @@ class ViewerWidget(QWidget):
         if QPrintDialog(printer, self).exec():
             self.browser.document().print_(printer)
 
+    def _body_plain_text(self) -> str:
+        """Best plain-text rendering of the current body.
+
+        ``QTextBrowser.toPlainText()`` substitutes U+FFFC (object replacement)
+        for every inline image, so an image-heavy HTML mail copies as a run of
+        invisible characters - which reads as "nothing was copied". Strip those,
+        and fall back to the message model when what's left is empty.
+        """
+
+        m = self._message
+        if m is None or (not m.body_text and not m.body_html):
+            return ""
+        # In source / headers view the document holds the dump, not the body.
+        if not self._source_mode:
+            text = _strip_objects(self.browser.document().toPlainText())
+            if text.strip():
+                return text
+        if m.body_text and m.body_text.strip():
+            return m.body_text
+        if m.body_html:
+            return _strip_objects(_html_to_text(m.body_html))
+        return ""
+
     def copy_body(self) -> None:
-        if self._message is not None:
-            QGuiApplication.clipboard().setText(self.browser.document().toPlainText())
+        if self._message is None:
+            return
+        text = self._body_plain_text()
+        if text.strip():
+            QGuiApplication.clipboard().setText(text)
+        else:
+            self._flash(self.tr("Nothing to copy"))
 
     def copy_headers(self) -> None:
         if self._message is not None:
             QGuiApplication.clipboard().setText(_headers_dump(self._message))
+
+    def _flash(self, text: str) -> None:
+        win = self.window()
+        bar = getattr(win, "statusBar", None)
+        if callable(bar):
+            try:
+                bar().showMessage(text, 2500)
+            except Exception:  # noqa: BLE001
+                pass
 
     # -- misc ------------------------------------------------- #
     def save_all_attachments(self) -> None:
@@ -741,6 +778,15 @@ def _esc(text: str) -> str:
     return _html.escape(text or "")
 
 
+#: U+FFFC object replacement (inline images), U+200B zero-width space, and the
+#: BOM - all of which QTextBrowser can leave in ``toPlainText()`` output.
+_OBJECT_CHARS = str.maketrans("", "", "￼​﻿")
+
+
+def _strip_objects(text: str) -> str:
+    return (text or "").translate(_OBJECT_CHARS)
+
+
 _ADDR_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 
 
@@ -752,21 +798,26 @@ def _sender_key(sender: str) -> str:
 
 
 def _headers_dump(m: EmailMessage) -> str:
+    T = QCoreApplication.translate
     lines: list[str] = []
 
     def add(label: str, value: str) -> None:
         if value:
             lines.append(f"{label}: {value}")
 
-    add(QCoreApplication.translate("ViewerWidget", "From"), m.sender)
-    add(QCoreApplication.translate("ViewerWidget", "To"), ", ".join(m.to))
-    add(QCoreApplication.translate("ViewerWidget", "Cc"), ", ".join(m.cc))
-    add(QCoreApplication.translate("ViewerWidget", "Date"), format_datetime(m.date) if m.date else "")
-    add(QCoreApplication.translate("ViewerWidget", "Subject"), m.subject)
-    add(QCoreApplication.translate("ViewerWidget", "Folder"), m.folder_path or "")
-    for key, value in (m.headers or {}).items():
-        add(str(key), str(value))
-    return "\n".join(lines) or QCoreApplication.translate("ViewerWidget", "(no headers)")
+    if m.headers:
+        # Real transport headers exist - show them as-is (deduped, order kept).
+        for key, value in m.headers.items():
+            add(str(key), str(value))
+    else:
+        add(T("ViewerWidget", "From"), m.sender)
+        add(T("ViewerWidget", "To"), ", ".join(m.to))
+        add(T("ViewerWidget", "Cc"), ", ".join(m.cc))
+        add(T("ViewerWidget", "Bcc"), ", ".join(m.bcc))
+        add(T("ViewerWidget", "Date"), format_datetime(m.date) if m.date else "")
+        add(T("ViewerWidget", "Subject"), m.subject)
+    add(T("ViewerWidget", "Folder"), m.folder_path or "")
+    return "\n".join(lines) or T("ViewerWidget", "(no headers)")
 
 
 def _html_to_text(html: str) -> str:

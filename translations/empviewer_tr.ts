@@ -2,17 +2,6 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="tr_TR">
 <context>
-    <name></name>
-    <message>
-        <source>signed</source>
-        <translation>imzalı</translation>
-    </message>
-    <message>
-        <source>encrypted</source>
-        <translation>şifreli</translation>
-    </message>
-</context>
-<context>
     <name>AttachmentChip</name>
     <message>
         <source>Attachment</source>
@@ -492,6 +481,10 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Yazdır</translation>
     </message>
     <message>
+        <source>Nothing to copy</source>
+        <translation>Kopyalanacak bir şey yok</translation>
+    </message>
+    <message>
         <source>Attachments</source>
         <translation>Ekler</translation>
     </message>
@@ -508,34 +501,6 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>
             <numerusform>%n ek şuraya kaydedildi:</numerusform>
         </translation>
-    </message>
-    <message>
-        <source>From</source>
-        <translation>Kimden</translation>
-    </message>
-    <message>
-        <source>To</source>
-        <translation>Kime</translation>
-    </message>
-    <message>
-        <source>Cc</source>
-        <translation>Bilgi</translation>
-    </message>
-    <message>
-        <source>Date</source>
-        <translation>Tarih</translation>
-    </message>
-    <message>
-        <source>Subject</source>
-        <translation>Konu</translation>
-    </message>
-    <message>
-        <source>Folder</source>
-        <translation>Klasör</translation>
-    </message>
-    <message>
-        <source>(no headers)</source>
-        <translation>(başlık yok)</translation>
     </message>
 </context>
 <context>
