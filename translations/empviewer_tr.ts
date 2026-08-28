@@ -77,8 +77,12 @@ Bir kopya şuraya kaydedildi:</translation>
 <context>
     <name>MainWindow</name>
     <message>
-        <source>Library</source>
+        <source>(empty)</source>
         <extracomment>Emitted whenever a load fails, so tests can observe it without a dialog.</extracomment>
+        <translation>(boş)</translation>
+    </message>
+    <message>
+        <source>Library</source>
         <translation>Kitaplık</translation>
     </message>
     <message>
@@ -196,6 +200,22 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>Group by &amp;Conversation</source>
         <translation>Konuşmaya Göre &amp;Grupla</translation>
+    </message>
+    <message>
+        <source>&amp;Back</source>
+        <translation>&amp;Geri</translation>
+    </message>
+    <message>
+        <source>&amp;Forward</source>
+        <translation>&amp;İleri</translation>
+    </message>
+    <message>
+        <source>New &amp;Tab</source>
+        <translation>Yeni &amp;Sekme</translation>
+    </message>
+    <message>
+        <source>&amp;Close Tab</source>
+        <translation>Sekmeyi &amp;Kapat</translation>
     </message>
     <message>
         <source>&amp;Theme</source>
@@ -437,6 +457,7 @@ Bir kopya şuraya kaydedildi:</translation>
     <name>ViewerWidget</name>
     <message>
         <source>This message contains remote content that was blocked to protect your privacy.</source>
+        <extracomment>Emitted when the user asks to open an embedded message (routed to a new tab by the main window). Falls back to a modal viewer if unconnected. Emitted after the shown message changes, so the window can refresh the tab title / Back-Forward action state.</extracomment>
         <translation>Bu ileti, gizliliğiniz için engellenen uzak içerik barındırıyor.</translation>
     </message>
     <message>

@@ -208,7 +208,15 @@ class AttachmentChip(QPushButton):
 
     # -- actions --------------------------------------------------------- #
     def _open_message(self) -> None:
-        """Show the embedded message in a modal viewer."""
+        """Hand the embedded message to the owning ViewerWidget (new tab), or
+        fall back to a modal viewer when there is no owner to route it to."""
+
+        owner = self.parent()
+        while owner is not None and not isinstance(owner, ViewerWidget):
+            owner = owner.parent()
+        if owner is not None and owner.receivers(owner.openMessageRequested) > 0:
+            owner.openMessageRequested.emit(self._att.embedded)
+            return
 
         from PySide6.QtWidgets import QDialog, QVBoxLayout
 
@@ -265,7 +273,14 @@ class AttachmentChip(QPushButton):
 # Viewer widget
 # --------------------------------------------------------------------------- #
 class ViewerWidget(QWidget):
-    """Renders one :class:`EmailMessage`."""
+    """Renders one :class:`EmailMessage`, with per-tab back/forward history."""
+
+    #: Emitted when the user asks to open an embedded message (routed to a new
+    #: tab by the main window). Falls back to a modal viewer if unconnected.
+    openMessageRequested = Signal(object)
+    #: Emitted after the shown message changes, so the window can refresh the
+    #: tab title / Back-Forward action state.
+    messageChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -275,6 +290,8 @@ class ViewerWidget(QWidget):
         self._force_text = False
         self._zoom = 0
         self._prefer_text = False
+        self._history: list[EmailMessage] = []
+        self._hist_pos = -1
         self._load_prefs()
 
         root = QVBoxLayout(self)
@@ -397,6 +414,8 @@ class ViewerWidget(QWidget):
     # -- public API -------------------------------------------------- #
     def clear(self) -> None:
         self._message = None
+        self._history.clear()
+        self._hist_pos = -1
         self.lbl_subject.setText("")
         self.lbl_meta.setText("")
         line1 = self.tr("Open an .eml, .msg, .pst or .ost file to read it here.")
@@ -431,7 +450,17 @@ class ViewerWidget(QWidget):
         if self._zoom:
             self.browser.zoomIn(self._zoom)
 
-    def set_message(self, message: EmailMessage) -> None:
+    def set_message(self, message: EmailMessage, *, record: bool = True) -> None:
+        if record and message is not self._message:
+            del self._history[self._hist_pos + 1:]
+            self._history.append(message)
+            self._hist_pos = len(self._history) - 1
+            if len(self._history) > 50:
+                self._history.pop(0)
+                self._hist_pos -= 1
+        self._show(message)
+
+    def _show(self, message: EmailMessage) -> None:
         self._message = message
         self._had_remote = False
         self._source_mode = False
@@ -451,6 +480,24 @@ class ViewerWidget(QWidget):
         self.browser.set_inline_resources(message.inline_by_cid)
         self._render_body(message)
         self._populate_attachments(message.visible_attachments)
+        self.messageChanged.emit()
+
+    # -- history --------------------------------------------------- #
+    def can_go_back(self) -> bool:
+        return self._hist_pos > 0
+
+    def can_go_forward(self) -> bool:
+        return 0 <= self._hist_pos < len(self._history) - 1
+
+    def go_back(self) -> None:
+        if self.can_go_back():
+            self._hist_pos -= 1
+            self._show(self._history[self._hist_pos])
+
+    def go_forward(self) -> None:
+        if self.can_go_forward():
+            self._hist_pos += 1
+            self._show(self._history[self._hist_pos])
 
     # -- rendering -------------------------------------------------- #
     @staticmethod

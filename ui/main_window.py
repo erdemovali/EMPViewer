@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QTableView,
+    QTabWidget,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -355,6 +356,58 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1500, lambda: self._check_updates(manual=False))
 
     # ------------------------------------------------------------------ #
+    # Viewer tabs
+    # ------------------------------------------------------------------ #
+    @property
+    def viewer(self) -> ViewerWidget:
+        """The ViewerWidget in the current tab (created on demand)."""
+        w = self.viewer_tabs.currentWidget()
+        if w is None:
+            w = self._new_viewer_tab()
+        return w
+
+    def _new_viewer_tab(self, *, focus: bool = True) -> ViewerWidget:
+        v = ViewerWidget()
+        v.openMessageRequested.connect(lambda msg: self._open_message_in_tab(msg))
+        v.messageChanged.connect(lambda vw=v: self._on_tab_message_changed(vw))
+        idx = self.viewer_tabs.addTab(v, self.tr("(empty)"))
+        if focus:
+            self.viewer_tabs.setCurrentIndex(idx)
+        return v
+
+    def _close_tab(self, index: int) -> None:
+        if self.viewer_tabs.count() <= 1:
+            self.viewer.clear()
+            self._on_tab_message_changed(self.viewer)
+            return
+        w = self.viewer_tabs.widget(index)
+        self.viewer_tabs.removeTab(index)
+        if w is not None:
+            w.deleteLater()
+
+    def _open_message_in_tab(self, message) -> None:
+        v = self._new_viewer_tab()
+        v.set_message(message)
+
+    def _on_tab_message_changed(self, vw: ViewerWidget) -> None:
+        idx = self.viewer_tabs.indexOf(vw)
+        if idx >= 0:
+            m = vw._message
+            title = m.display_name if m is not None else self.tr("(empty)")
+            self.viewer_tabs.setTabText(idx, (title[:28] + "…") if len(title) > 29 else title)
+            self.viewer_tabs.setTabToolTip(idx, title)
+        if vw is self.viewer_tabs.currentWidget():
+            self._sync_nav_actions()
+
+    def _sync_nav_actions(self) -> None:
+        back = getattr(self, "_act_back", None)
+        if back is None:
+            return  # menus not built yet
+        v = self.viewer_tabs.currentWidget()
+        back.setEnabled(bool(v) and v.can_go_back())
+        self._act_fwd.setEnabled(bool(v) and v.can_go_forward())
+
+    # ------------------------------------------------------------------ #
     # UI construction
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
@@ -445,12 +498,18 @@ class MainWindow(QMainWindow):
         _rlay.addWidget(self.results_view)
         self._results_panel.hide()
 
-        self.viewer = ViewerWidget()
+        self.viewer_tabs = QTabWidget()
+        self.viewer_tabs.setTabsClosable(True)
+        self.viewer_tabs.setMovable(True)
+        self.viewer_tabs.setDocumentMode(True)
+        self.viewer_tabs.tabCloseRequested.connect(self._close_tab)
+        self.viewer_tabs.currentChanged.connect(lambda _i: self._sync_nav_actions())
+        self._new_viewer_tab()
 
         right_split = QSplitter(Qt.Orientation.Vertical)
         right_split.addWidget(self._results_panel)
         right_split.addWidget(self._list_panel)
-        right_split.addWidget(self.viewer)
+        right_split.addWidget(self.viewer_tabs)
         right_split.setStretchFactor(0, 0)
         right_split.setStretchFactor(1, 0)
         right_split.setStretchFactor(2, 1)
@@ -573,7 +632,23 @@ class MainWindow(QMainWindow):
         self._act_group.setCheckable(True)
         self._act_group.toggled.connect(self.proxy.set_group)
         view_menu.addSeparator()
+        self._act_back = view_menu.addAction(self.tr("&Back"))
+        self._act_back.setShortcut(QKeySequence("Alt+Left"))
+        self._act_back.triggered.connect(lambda: self.viewer.go_back())
+        self._act_fwd = view_menu.addAction(self.tr("&Forward"))
+        self._act_fwd.setShortcut(QKeySequence("Alt+Right"))
+        self._act_fwd.triggered.connect(lambda: self.viewer.go_forward())
+        act_newtab = view_menu.addAction(self.tr("New &Tab"))
+        act_newtab.setShortcut(QKeySequence.StandardKey.AddTab)
+        act_newtab.triggered.connect(lambda: self._new_viewer_tab())
+        act_closetab = view_menu.addAction(self.tr("&Close Tab"))
+        act_closetab.setShortcut(QKeySequence("Ctrl+F4"))
+        act_closetab.triggered.connect(
+            lambda: self._close_tab(self.viewer_tabs.currentIndex())
+        )
+        view_menu.addSeparator()
         theme_menu = view_menu.addMenu(self.tr("&Theme"))
+        self._sync_nav_actions()
         group = QActionGroup(self)
         group.setExclusive(True)
         current = theme.load_mode()

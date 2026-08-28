@@ -96,6 +96,30 @@ def test_copy_body_strips_object_replacement_chars(monkeypatch) -> None:
     assert cb.text() == "SENTINEL"
 
 
+def test_viewer_back_forward_history(monkeypatch) -> None:
+    monkeypatch.setattr("ui.viewer_widget.QSettings", lambda *a, **k: _settings())
+    v = ViewerWidget()
+    a = EmailMessage(subject="A", sender="x@y", body_text="a")
+    b = EmailMessage(subject="B", sender="x@y", body_text="b")
+    c = EmailMessage(subject="C", sender="x@y", body_text="c")
+    v.set_message(a)
+    v.set_message(b)
+    v.set_message(c)
+    assert v.can_go_back() and not v.can_go_forward()
+    v.go_back()
+    assert v._message.subject == "B"
+    v.go_back()
+    assert v._message.subject == "A" and not v.can_go_back()
+    v.go_forward()
+    assert v._message.subject == "B" and v.can_go_forward()
+    # a fresh navigation truncates the forward stack
+    v.set_message(c)
+    assert not v.can_go_forward()
+    # re-showing the same message is not a new history entry
+    v.set_message(c)
+    assert v._history.count(c) == 1
+
+
 def test_zoom_by_persists_and_clamps(monkeypatch) -> None:
     store = _settings()
     monkeypatch.setattr("ui.viewer_widget.QSettings", lambda *a, **k: store)
