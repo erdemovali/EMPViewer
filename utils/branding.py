@@ -1,10 +1,13 @@
-"""Application logo / icon, rendered from ``emplogo.png`` at the repo root.
+"""Application logo / icon.
 
-``emplogo.png`` is the single source of truth for every icon: the window / dock
-icon, the About dialog and (via :mod:`build.py`) the packaged ``.ico`` / ``.icns``.
-:func:`make_app_icon` down-samples it to the common icon sizes into one
-:class:`QIcon`; if the file is missing it falls back to a plain brand-coloured
-tile so the app always has an icon.
+Primary source: the hand-designed set under ``icons/app/`` (checked in, also
+bundled into the frozen app). ``EMPViewer_<size>.png`` holds the glyph at every
+common icon size; :func:`make_app_icon` collects them into one multi-resolution
+:class:`QIcon` for the window / dock / taskbar, and :func:`logo_pixmap` returns a
+single bitmap for the About dialog.
+
+Fallback (``icons/`` missing): down-sample ``emplogo.png`` at the repo root, and
+failing even that, a plain brand-coloured tile so the app always has an icon.
 """
 
 from __future__ import annotations
@@ -18,12 +21,26 @@ from utils.helpers import resource_path
 
 BRAND_HEX = "#4285F4"
 _ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+#: Exact-size PNGs shipped in ``icons/app/``.
+_PNG_SIZES = (16, 32, 48, 64, 128, 256, 512, 1024)
 _LOGO_FILE = "emplogo.png"
+
+
+def _app_png(size: int):
+    """Path to the hand-designed app glyph at ``size`` px, if it exists."""
+
+    p = resource_path(f"icons/app/EMPViewer_{size}.png")
+    return p if p.exists() else None
+
+
+@lru_cache(maxsize=1)
+def _has_designed_icons() -> bool:
+    return _app_png(256) is not None
 
 
 @lru_cache(maxsize=1)
 def _source_image() -> QImage | None:
-    """The raw logo bitmap, loaded once. ``None`` if it can't be read."""
+    """The raw fallback logo bitmap, loaded once. ``None`` if it can't be read."""
 
     img = QImage(str(resource_path(_LOGO_FILE)))
     return None if img.isNull() else img.convertToFormat(QImage.Format.Format_ARGB32)
@@ -66,15 +83,36 @@ def _fallback_pixmap(size: int, color_hex: str) -> QPixmap:
 
 
 def _render(size: int, color_hex: str, *, pad_ratio: float = 0.08) -> QPixmap:
-    """A ``size``x``size`` transparent pixmap with the logo centred and padded."""
+    """A ``size``x``size`` transparent pixmap with the logo centred and padded.
 
-    src = _source_image()
-    if src is None:
+    Uses the exact-size designed PNG when present; otherwise pads / down-samples
+    ``emplogo.png``; otherwise a plain brand tile.
+    """
+
+    png = _app_png(size) if _has_designed_icons() else None
+    if png is not None:
+        pm = QPixmap(str(png))
+        if not pm.isNull():
+            return pm
+
+    if _has_designed_icons():
+        # Odd size (e.g. 24): scale the nearest larger designed PNG.
+        bigger = next((s for s in _PNG_SIZES if s >= size), _PNG_SIZES[-1])
+        src = QPixmap(str(_app_png(bigger) or ""))
+        if not src.isNull():
+            return src.scaled(
+                size, size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+    src_img = _source_image()
+    if src_img is None:
         return _fallback_pixmap(size, color_hex)
 
     pad = round(size * pad_ratio)
     inner = max(1, size - 2 * pad)
-    scaled = _smooth_downscale(src, inner)
+    scaled = _smooth_downscale(src_img, inner)
 
     pm = QPixmap(size, size)
     pm.fill(Qt.GlobalColor.transparent)
@@ -93,7 +131,8 @@ def make_app_icon(color_hex: str = BRAND_HEX) -> QIcon:
 
     icon = QIcon()
     try:
-        for s in _ICON_SIZES:
+        sizes = _PNG_SIZES if _has_designed_icons() else _ICON_SIZES
+        for s in sizes:
             icon.addPixmap(_render(s, color_hex))
     except Exception:
         icon = QIcon(str(resource_path(_LOGO_FILE)))

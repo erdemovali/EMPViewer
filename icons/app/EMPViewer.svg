@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#3D4CA0"/><stop offset="1" stop-color="#141C46"/>
+  </linearGradient>
+  <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9EEF4"/>
+  </linearGradient>
+  <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.13"/>
+    <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.02"/>
+    <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#9FD8FF" stop-opacity="0.55"/>
+    <stop offset="1" stop-color="#5AA9E6" stop-opacity="0.30"/>
+  </linearGradient>
+  <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+    <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0A0F2A" flood-opacity="0.45"/>
+  </filter>
+</defs>
+
+
+
+<g transform="translate(512 512) scale(1.0) translate(-512 -512)">
+<!-- fanned file cards: pst / msg / eml -->
+<g filter="url(#drop)">
+  <g transform="rotate(-12 512 486)">
+    <rect x="252" y="238" width="520" height="360" rx="34" fill="#8E4FBF"/>
+    <rect x="252" y="238" width="520" height="70" rx="34" fill="#FFFFFF" opacity="0.18"/>
+  </g>
+  <g transform="rotate(9 512 486)">
+    <rect x="252" y="250" width="520" height="360" rx="34" fill="#E79A1E"/>
+    <rect x="252" y="250" width="520" height="70" rx="34" fill="#FFFFFF" opacity="0.18"/>
+  </g>
+  <g>
+    <rect x="252" y="286" width="520" height="366" rx="34" fill="#2E86D0"/>
+    <rect x="252" y="286" width="520" height="70" rx="34" fill="#FFFFFF" opacity="0.18"/>
+  </g>
+</g>
+
+<!-- envelope -->
+<g filter="url(#drop)">
+  <rect x="286" y="330" width="452" height="300" rx="28" fill="url(#paper)"/>
+  <path d="M 306,352 L 512,510 L 718,352" fill="none" stroke="#B9C6D4" stroke-width="26"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 306,612 L 430,500 M 718,612 L 594,500" stroke="#DCE4EC" stroke-width="20"
+        stroke-linecap="round" fill="none"/>
+</g>
+
+<!-- magnifier -->
+<g filter="url(#drop)">
+  <circle cx="656" cy="612" r="146" fill="url(#glass)"/>
+  <circle cx="656" cy="612" r="146" fill="none" stroke="#222E63" stroke-width="40"/>
+  <path d="M 762,718 L 872,828" stroke="#222E63" stroke-width="62" stroke-linecap="round"/>
+</g>
+</g>
+</svg>

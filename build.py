@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
+ICONS = ROOT / "icons"  # committed, hand-designed icon set (app + per-type)
 APP_NAME = "EMPViewer"
 BUNDLE_ID = "com.empviewer.app"
 LOGO_SRC = ROOT / "emplogo.png"
@@ -30,6 +31,14 @@ LOGO_SRC = ROOT / "emplogo.png"
 DATA_SEP = ";" if os.name == "nt" else ":"
 
 DOC_EXTENSIONS = ["eml", "msg", "pst", "ost"]
+
+#: Human-facing type names for the per-extension document-type registration.
+DOC_TYPE_NAMES = {
+    "eml": "E-mail Message",
+    "msg": "Outlook Message",
+    "pst": "Outlook Data File",
+    "ost": "Outlook Offline Data File",
+}
 
 
 def read_version() -> str:
@@ -46,16 +55,29 @@ def read_version() -> str:
 # Icons
 # --------------------------------------------------------------------------- #
 def ensure_icons() -> None:
-    """Materialise assets/app.ico + app.png (+ app.icns on macOS) from emplogo.png.
+    """Materialise assets/app.ico + app.png (+ app.icns) for PyInstaller's --icon.
 
-    The window/taskbar icon at runtime comes straight from ``emplogo.png`` via
-    :mod:`utils.branding`; PyInstaller's ``--icon`` needs a real .ico/.icns, so
-    we down-sample them here. Falls back to a plain brand-coloured tile if the
-    source image can't be read.
+    Preferred source: the hand-designed set under ``icons/app/`` (checked in).
+    ``icons/app/EMPViewer.ico`` / ``.icns`` are copied verbatim so the packaged
+    ``.exe`` / ``.app`` carry the real artwork at every embedded size.
+
+    Fallback (``icons/`` absent): down-sample ``emplogo.png`` as before, or a
+    plain brand-coloured tile if even that can't be read.
     """
 
     ASSETS.mkdir(exist_ok=True)
     ico, icns, png = ASSETS / "app.ico", ASSETS / "app.icns", ASSETS / "app.png"
+
+    src_ico = ICONS / "app" / "EMPViewer.ico"
+    src_icns = ICONS / "app" / "EMPViewer.icns"
+    src_png = ICONS / "app" / "EMPViewer_512.png"
+    if src_ico.exists() and src_icns.exists():
+        shutil.copyfile(src_ico, ico)
+        shutil.copyfile(src_icns, icns)
+        shutil.copyfile(src_png if src_png.exists() else src_ico, png)
+        print("Using hand-designed app icons from icons/app/")
+        return
+
     try:
         from PySide6.QtCore import QRectF, Qt
         from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
@@ -186,6 +208,9 @@ def pyinstaller_args(mode: str) -> list[str]:
         "--clean",
         mode,  # --onefile or --onedir
         "--add-data", f"{ASSETS}{DATA_SEP}assets",
+        # Hand-designed icon set: app glyph (runtime QIcon) + per-extension icons
+        # that the OS shell points at (Windows DefaultIcon / macOS doc types).
+        "--add-data", f"{ICONS}{DATA_SEP}icons",
         "--add-data", f"{LOGO_SRC}{DATA_SEP}.",
         "--add-data", f"{ROOT / 'translations'}{DATA_SEP}translations",
         "--add-data", f"{ROOT / 'VERSION'}{DATA_SEP}.",
@@ -241,22 +266,34 @@ def run_pyinstaller(mode: str) -> None:
 # macOS post-processing
 # --------------------------------------------------------------------------- #
 def patch_mac_info_plist() -> None:
-    app_plist = ROOT / "dist" / f"{APP_NAME}.app" / "Contents" / "Info.plist"
+    app_root = ROOT / "dist" / f"{APP_NAME}.app"
+    app_plist = app_root / "Contents" / "Info.plist"
     if not app_plist.exists():
         print("No .app bundle found; skipping Info.plist patch.")
         return
     with app_plist.open("rb") as fh:
         info = plistlib.load(fh)
 
-    info["CFBundleDocumentTypes"] = [
-        {
-            "CFBundleTypeName": "Mail message",
+    # Give each extension its own Finder icon: copy icons/filetypes/<ext>.icns
+    # into Contents/Resources/ and reference it by name from its document type.
+    resources = app_root / "Contents" / "Resources"
+    resources.mkdir(parents=True, exist_ok=True)
+    doc_types = []
+    for ext in DOC_EXTENSIONS:
+        entry = {
+            "CFBundleTypeName": DOC_TYPE_NAMES.get(ext, f"{ext.upper()} file"),
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Alternate",
-            "CFBundleTypeExtensions": DOC_EXTENSIONS,
-            "CFBundleTypeIconFile": "app.icns",
+            "CFBundleTypeExtensions": [ext],
         }
-    ]
+        src = ICONS / "filetypes" / f"{ext}.icns"
+        if src.exists():
+            shutil.copyfile(src, resources / f"{ext}.icns")
+            entry["CFBundleTypeIconFile"] = f"{ext}.icns"
+        else:
+            entry["CFBundleTypeIconFile"] = "app.icns"
+        doc_types.append(entry)
+    info["CFBundleDocumentTypes"] = doc_types
     info.setdefault("LSMinimumSystemVersion", "11.0")
     info["NSHighResolutionCapable"] = True
     v = read_version()

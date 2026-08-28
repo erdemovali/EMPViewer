@@ -18,22 +18,66 @@
     <true/>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
+    <!--
+      One document type per extension so Finder can show a distinct icon for
+      each. build.py copies icons/filetypes/<ext>.icns into
+      Contents/Resources/ and sets CFBundleTypeIconFile to match.
+    -->
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>Mail message</string>
+            <string>E-mail Message</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>LSHandlerRank</key>
             <string>Alternate</string>
             <key>CFBundleTypeIconFile</key>
-            <string>app.icns</string>
+            <string>eml.icns</string>
             <key>CFBundleTypeExtensions</key>
             <array>
                 <string>eml</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Outlook Message</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>msg.icns</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
                 <string>msg</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Outlook Data File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>pst.icns</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
                 <string>pst</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Outlook Offline Data File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>ost.icns</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
                 <string>ost</string>
             </array>
         </dict>

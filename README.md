@@ -71,7 +71,13 @@ python build.py --installer  # Windows: EMPViewer-Setup.exe (requires Inno Setup
 python build.py --clean      # wipe build/ and dist/ first
 ```
 
-Icons are generated from `emplogo.png` at build time.
+The hand-designed icon set lives in `icons/` — `icons/app/` is the application
+icon (Windows `.ico`, macOS `.icns`, glyph PNGs for the runtime window/dock
+icon) and `icons/filetypes/` holds a distinct icon per extension
+(`.eml` / `.msg` / `.pst` / `.ost`). `build.py` copies these into the packaged
+app; the Windows `--register` step and the macOS `Info.plist` document types
+point Explorer / Finder at the per-extension icons. If `icons/` is absent the
+build falls back to down-sampling `emplogo.png`.
 
 ## Releases
 
