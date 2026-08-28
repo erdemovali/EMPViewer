@@ -44,7 +44,6 @@ UninstallDisplayIcon={app}\{#AppExe}
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -68,4 +67,4 @@ Filename: "{app}\{#AppExe}"; Parameters: "--set-default"; Flags: runhidden runas
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\{#AppExe}"; Parameters: "--unregister"; Flags: runhidden runasoriginaluser; RunOnceId: "UnregEMPViewer"
+Filename: "{app}\{#AppExe}"; Parameters: "--unregister"; Flags: runhidden; RunOnceId: "UnregEMPViewer"
