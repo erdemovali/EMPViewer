@@ -33,6 +33,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from ._hdr import enrich_from_headers
 from .errors import CorruptFileError, MissingDependencyError, ParserError
 from .models import Attachment, EmailMessage, FolderNode, MessageStub, PstDocument
 
@@ -201,7 +202,7 @@ class NativePstBackend(PstBackend):
                 )
                 for a in m["attachments"]
             ]
-            return EmailMessage(
+            out = EmailMessage(
                 subject=m["subject"],
                 sender=m["sender"],
                 to=m["to"],
@@ -213,6 +214,8 @@ class NativePstBackend(PstBackend):
                 attachments=atts,
                 folder_path=self._folder_paths.get(folder_id),
             )
+            enrich_from_headers(out)
+            return out
 
 
 # --------------------------------------------------------------------------- #
@@ -341,7 +344,7 @@ class LibpffBackend(PstBackend):
             if not html_body and not text_body:
                 html_body = _pff_rtf_as_html(m)
 
-            return EmailMessage(
+            out = EmailMessage(
                 subject=_decode(_call(m, "get_subject")),
                 sender=headers.get("From") or _decode(_call(m, "get_sender_name")),
                 to=_split_recipients(headers.get("To", "")),
@@ -352,6 +355,8 @@ class LibpffBackend(PstBackend):
                 body_text=text_body,
                 attachments=_pff_attachments(m),
             )
+            enrich_from_headers(out)
+            return out
 
 
 def _call(obj, name):
@@ -559,7 +564,10 @@ class ReadpstBackend(PstBackend):
                 try:
                     m = parse_eml(f)
                     stubs.append(
-                        MessageStub(backend_id=(folder_id, i), sender=m.sender, subject=m.subject, date=m.date)
+                        MessageStub(
+                            backend_id=(folder_id, i), sender=m.sender, subject=m.subject, date=m.date,
+                            has_attachments=bool(m.visible_attachments), size=m.size,
+                        )
                     )
                 except Exception:
                     stubs.append(

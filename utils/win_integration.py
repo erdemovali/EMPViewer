@@ -17,6 +17,7 @@ CLI (also works from the frozen .exe):
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sys
@@ -24,6 +25,8 @@ from pathlib import Path
 
 APP_ID = "EMPViewer"
 APP_DESCRIPTION = "Viewer for .eml, .msg, .pst and .ost mail files"
+
+log = logging.getLogger("empviewer.win_integration")
 
 # ext -> (ProgID, friendly type name)
 _TYPES: dict[str, tuple[str, str]] = {
@@ -131,7 +134,7 @@ def _notify_shell() -> None:
         # SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
         ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
     except Exception:
-        pass
+        log.debug("SHChangeNotify failed", exc_info=True)
 
 
 def _require_windows(action: str) -> bool:

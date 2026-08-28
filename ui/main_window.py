@@ -18,6 +18,7 @@ Layout::
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -510,6 +511,7 @@ class MainWindow(QMainWindow):
             self._add_folder_items(child_item, doc, child, child_path)
 
     def _on_load_error(self, path: str, message: str) -> None:
+        logging.getLogger("empviewer.ui").warning("open %r failed: %s", path, message)
         self._clear_busy()
         self.loadFailed.emit(message)
         self._warn(self.tr("Could not open file"), message)

@@ -150,6 +150,11 @@ def _install_translators(app: QApplication) -> None:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
 
+    from utils.logging_setup import configure, debug_requested, install_excepthook
+
+    configure(debug_requested(argv))
+    install_excepthook()
+
     _win_actions = {"--register", "--unregister", "--set-default"}
     if sys.platform.startswith("win") and _win_actions.intersection(argv):
         from utils import win_integration

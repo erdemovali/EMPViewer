@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ._hdr import enrich_from_headers
 from .errors import CorruptFileError, MissingDependencyError
 from .models import Attachment, EmailMessage
 
@@ -46,6 +47,34 @@ def _coerce_date(value: Any) -> datetime | None:
 
         return date_parser.parse(str(value))
     except Exception:
+        return None
+
+
+def _hget(headers: dict[str, str], name: str) -> str | None:
+    """Case-insensitive header lookup."""
+
+    low = name.lower()
+    for k, v in headers.items():
+        if k.lower() == low:
+            return v
+    return None
+
+
+def _refs(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [tok for tok in str(value).replace(",", " ").split() if tok.startswith("<")]
+
+
+def _importance_msg(value: Any) -> str | None:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    if isinstance(name, str) and name.lower() in ("low", "normal", "high"):
+        return name.lower()
+    try:
+        return {0: "low", 1: "normal", 2: "high"}.get(int(value))
+    except (TypeError, ValueError):
         return None
 
 
@@ -156,18 +185,34 @@ def parse_msg(path: str | Path) -> EmailMessage:
             except Exception:
                 headers = {}
 
-        return EmailMessage(
+        atts = _collect_attachments(msg)
+        msg_class = str(getattr(msg, "messageClass", "") or "").lower()
+        att_names = " ".join(a.filename.lower() for a in atts)
+        is_signed = "smime" in msg_class or "signed" in msg_class or ".p7s" in att_names
+        is_encrypted = ".p7m" in att_names or "encrypted" in msg_class
+
+        out = EmailMessage(
             subject=str(getattr(msg, "subject", "") or ""),
             sender=str(getattr(msg, "sender", "") or ""),
             to=_as_list(getattr(msg, "to", None)),
             cc=_as_list(getattr(msg, "cc", None)),
+            bcc=_as_list(getattr(msg, "bcc", None)),
             date=_coerce_date(getattr(msg, "date", None)),
             headers=headers,
             body_html=html,
             body_text=text,
-            attachments=_collect_attachments(msg),
+            attachments=atts,
             source_path=str(p),
+            message_id=(str(getattr(msg, "messageId", "") or "").strip()
+                        or _hget(headers, "Message-ID") or None),
+            in_reply_to=(_refs(_hget(headers, "In-Reply-To")) or [None])[0],
+            references=_refs(_hget(headers, "References")),
+            importance=_importance_msg(getattr(msg, "importance", None)),
+            is_signed=is_signed,
+            is_encrypted=is_encrypted,
         )
+        enrich_from_headers(out)
+        return out
     except Exception as exc:  # noqa: BLE001
         raise CorruptFileError(str(p), f"Unexpected .msg structure: {exc}") from exc
     finally:

@@ -16,11 +16,15 @@ from pathlib import Path
 from .errors import CorruptFileError
 from .models import Attachment, EmailMessage
 
-_INTERESTING_HEADERS = (
-    "Message-ID", "Date", "From", "To", "Cc", "Bcc", "Reply-To", "Subject",
-    "Return-Path", "Delivered-To", "In-Reply-To", "References",
-    "Content-Type", "User-Agent", "X-Mailer",
-)
+_SIGNED_TYPES = {
+    "multipart/signed",
+    "application/pkcs7-signature",
+    "application/x-pkcs7-signature",
+}
+_ENCRYPTED_TYPES = {
+    "multipart/encrypted",
+    "application/pgp-encrypted",
+}
 
 
 def _decode(value: object) -> str:
@@ -105,6 +109,45 @@ def _collect_bodies(msg: PyEmailMessage) -> tuple[str | None, str | None]:
     return html, text
 
 
+def _refs(value: object) -> list[str]:
+    """Split a ``References`` / ``In-Reply-To`` header into individual IDs."""
+
+    if not value:
+        return []
+    return [tok for tok in str(value).replace(",", " ").split() if tok.startswith("<")]
+
+
+def _importance(msg: PyEmailMessage) -> str | None:
+    imp = (msg.get("Importance") or "").strip().lower()
+    if imp in ("low", "normal", "high"):
+        return imp
+    prio = (msg.get("X-Priority") or "").strip()[:1]
+    if prio in ("1", "2"):
+        return "high"
+    if prio in ("4", "5"):
+        return "low"
+    return None
+
+
+def _crypto_flags(msg: PyEmailMessage) -> tuple[bool, bool]:
+    """Detect (not verify) an S/MIME or PGP envelope."""
+
+    signed = encrypted = False
+    for part in msg.walk():
+        ctype = part.get_content_type()
+        if ctype in _SIGNED_TYPES:
+            signed = True
+        elif ctype in _ENCRYPTED_TYPES:
+            encrypted = True
+        elif ctype == "application/pkcs7-mime":
+            smime = (part.get_param("smime-type") or "").lower()
+            if smime == "signed-data":
+                signed = True
+            else:  # enveloped-data, or unspecified -> treat as encrypted
+                encrypted = True
+    return signed, encrypted
+
+
 def _collect_attachments(msg: PyEmailMessage) -> list[Attachment]:
     if not msg.is_multipart():
         return []
@@ -151,22 +194,30 @@ def parse_eml_bytes(raw: bytes, *, source_path: str | None = None) -> EmailMessa
 
     try:
         html, text = _collect_bodies(msg)
-        headers = {
-            key: _decode(msg.get(key))
-            for key in _INTERESTING_HEADERS
-            if msg.get(key) is not None
-        }
+        # Keep *every* header (last-wins for repeats; the verbatim truth for
+        # duplicated Received lines etc. lives in ``raw_source``).
+        headers = {key: _decode(val) for key, val in msg.items()}
+        signed, encrypted = _crypto_flags(msg)
         return EmailMessage(
             subject=_decode(msg.get("Subject")),
             sender=(_addr_list(msg, "From") or [""])[0],
             to=_addr_list(msg, "To"),
             cc=_addr_list(msg, "Cc"),
+            bcc=_addr_list(msg, "Bcc"),
             date=_parse_date(msg),
             headers=headers,
             body_html=html,
             body_text=text,
             attachments=_collect_attachments(msg),
             source_path=source_path,
+            message_id=(str(msg.get("Message-ID")).strip() or None) if msg.get("Message-ID") else None,
+            in_reply_to=(_refs(msg.get("In-Reply-To")) or [None])[0],
+            references=_refs(msg.get("References")),
+            importance=_importance(msg),
+            size=len(raw),
+            is_signed=signed,
+            is_encrypted=encrypted,
+            raw_source=raw,
         )
     except CorruptFileError:
         raise

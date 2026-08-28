@@ -75,3 +75,45 @@ def test_wrong_charset_falls_back(tmp_path: Path) -> None:
     )
     msg = parse_eml_bytes(raw)
     assert "caf" in (msg.body_text or "")
+
+
+def test_all_headers_kept_and_raw_source(sample_eml_bytes: bytes) -> None:
+    raw = sample_eml_bytes.replace(
+        b"Message-ID: <abc123@example.com>",
+        b"Message-ID: <abc123@example.com>\r\nX-Weird-Custom: keep-me",
+    )
+    msg = parse_eml_bytes(raw)
+    # No whitelist any more: an arbitrary header survives.
+    assert msg.headers.get("X-Weird-Custom") == "keep-me"
+    # Verbatim bytes are retained for a real "View Source".
+    assert msg.raw_source == raw
+    assert msg.size == len(raw)
+
+
+def test_threading_and_importance_fields() -> None:
+    raw = (
+        b"Subject: Re: plan\r\n"
+        b"From: a@x.com\r\n"
+        b"Message-ID: <child@x.com>\r\n"
+        b"In-Reply-To: <root@x.com>\r\n"
+        b"References: <root@x.com> <mid@x.com>\r\n"
+        b"Importance: high\r\n\r\nbody\r\n"
+    )
+    msg = parse_eml_bytes(raw)
+    assert msg.message_id == "<child@x.com>"
+    assert msg.in_reply_to == "<root@x.com>"
+    assert msg.references == ["<root@x.com>", "<mid@x.com>"]
+    assert msg.importance == "high"
+
+
+def test_smime_signed_is_detected() -> None:
+    raw = (
+        b'Content-Type: multipart/signed; protocol="application/pkcs7-signature";'
+        b' micalg=sha-256; boundary="b"\r\n'
+        b"Subject: signed\r\nFrom: a@x.com\r\n\r\n"
+        b"--b\r\nContent-Type: text/plain\r\n\r\nhi\r\n"
+        b"--b\r\nContent-Type: application/pkcs7-signature\r\n\r\nAAAA\r\n--b--\r\n"
+    )
+    msg = parse_eml_bytes(raw)
+    assert msg.is_signed is True
+    assert msg.is_encrypted is False

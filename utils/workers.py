@@ -7,6 +7,7 @@ queued-connection signals carried by :class:`WorkerSignals`.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
@@ -14,6 +15,8 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 from parsers.errors import ParserError
 from parsers.models import EmailMessage, MessageStub
 from parsers.pst_parser import FolderId, MessageId, PstBackend
+
+log = logging.getLogger("empviewer.workers")
 
 
 class WorkerSignals(QObject):
@@ -61,10 +64,12 @@ class FnRunnable(_BaseRunnable):
         try:
             result = self._fn(*self._args, **self._kwargs)
         except ParserError as exc:
+            log.info("%s failed: %s", getattr(self._fn, "__name__", self._fn), exc.message)
             if not self._cancelled:
                 self.signals.error.emit(exc.message)
             return
         except Exception as exc:  # noqa: BLE001
+            log.exception("Unexpected error in %s", getattr(self._fn, "__name__", self._fn))
             if not self._cancelled:
                 self.signals.error.emit(f"Unexpected error: {exc}")
             return
@@ -87,10 +92,12 @@ class ListMessagesRunnable(_BaseRunnable):
         try:
             stubs: list[MessageStub] = self._backend.list_messages(self._folder_id)
         except ParserError as exc:
+            log.info("list_messages(%r) failed: %s", self._folder_id, exc.message)
             if not self._cancelled:
                 self.signals.error.emit(exc.message)
             return
         except Exception as exc:  # noqa: BLE001
+            log.exception("Could not list folder %r", self._folder_id)
             if not self._cancelled:
                 self.signals.error.emit(f"Could not list this folder: {exc}")
             return
@@ -113,10 +120,12 @@ class GetMessageRunnable(_BaseRunnable):
         try:
             message: EmailMessage = self._backend.get_message(self._message_id)
         except ParserError as exc:
+            log.info("get_message(%r) failed: %s", self._message_id, exc.message)
             if not self._cancelled:
                 self.signals.error.emit(exc.message)
             return
         except Exception as exc:  # noqa: BLE001
+            log.exception("Could not open message %r", self._message_id)
             if not self._cancelled:
                 self.signals.error.emit(f"Could not open this message: {exc}")
             return
