@@ -50,7 +50,7 @@ jobs:
       - name: Run tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: python -m pytest -q --cov=parsers --cov=utils --cov=ui --cov-report=term-missing
 
       - name: Build portable .exe + installer
         env:
