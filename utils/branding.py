@@ -1,57 +1,88 @@
-"""Application logo / icon, rendered from ``vector.svg`` at the repo root.
+"""Application logo / icon, rendered from ``emplogo.png`` at the repo root.
 
-The SVG ships as a solid black glyph; :func:`make_app_icon` recolours it to the
-brand accent so it stays visible on both light and dark shells, pads it, and
-rasterises the common icon sizes into a single :class:`QIcon`.
+``emplogo.png`` is the single source of truth for every icon: the window / dock
+icon, the About dialog and (via :mod:`build.py`) the packaged ``.ico`` / ``.icns``.
+:func:`make_app_icon` down-samples it to the common icon sizes into one
+:class:`QIcon`; if the file is missing it falls back to a plain brand-coloured
+tile so the app always has an icon.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 
 from utils.helpers import resource_path
 
 BRAND_HEX = "#4285F4"
 _ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+_LOGO_FILE = "emplogo.png"
 
 
-@lru_cache(maxsize=4)
-def _svg_bytes(color_hex: str) -> bytes:
-    path = resource_path("vector.svg")
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        # Minimal fallback glyph so the app always has an icon.
-        text = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 53">'
-            '<rect width="50" height="53" rx="10" fill="COLOR"/></svg>'
+@lru_cache(maxsize=1)
+def _source_image() -> QImage | None:
+    """The raw logo bitmap, loaded once. ``None`` if it can't be read."""
+
+    img = QImage(str(resource_path(_LOGO_FILE)))
+    return None if img.isNull() else img.convertToFormat(QImage.Format.Format_ARGB32)
+
+
+def _smooth_downscale(img: QImage, target: int) -> QImage:
+    """Halve repeatedly (smooth) down to ~2x target, then a final smooth scale.
+
+    One-shot scaling a ~1400px source straight to 16px is muddy; progressive
+    halving keeps small icons crisp.
+    """
+
+    cur = img
+    while cur.width() > target * 2 and cur.height() > target * 2:
+        cur = cur.scaled(
+            cur.width() // 2,
+            cur.height() // 2,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
-    text = text.replace('fill="black"', f'fill="{color_hex}"').replace("COLOR", color_hex)
-    return text.encode("utf-8")
+    return cur.scaled(
+        target,
+        target,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
 
 
-def _render(size: int, color_hex: str, *, pad_ratio: float = 0.14) -> QPixmap:
-    from PySide6.QtSvg import QSvgRenderer
-
-    renderer = QSvgRenderer(QByteArray(_svg_bytes(color_hex)))
+def _fallback_pixmap(size: int, color_hex: str) -> QPixmap:
     pm = QPixmap(size, size)
     pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setBrush(QColor(color_hex))
+    p.setPen(Qt.PenStyle.NoPen)
+    r = size * 0.18
+    p.drawRoundedRect(0, 0, size, size, r, r)
+    p.end()
+    return pm
 
-    vb = renderer.viewBoxF()
-    if vb.width() <= 0 or vb.height() <= 0:
-        vb = QRectF(0, 0, 50, 53)
-    pad = size * pad_ratio
-    avail = size - 2 * pad
-    scale = min(avail / vb.width(), avail / vb.height())
-    w, h = vb.width() * scale, vb.height() * scale
-    target = QRectF((size - w) / 2, (size - h) / 2, w, h)
 
+def _render(size: int, color_hex: str, *, pad_ratio: float = 0.08) -> QPixmap:
+    """A ``size``x``size`` transparent pixmap with the logo centred and padded."""
+
+    src = _source_image()
+    if src is None:
+        return _fallback_pixmap(size, color_hex)
+
+    pad = round(size * pad_ratio)
+    inner = max(1, size - 2 * pad)
+    scaled = _smooth_downscale(src, inner)
+
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    renderer.render(painter, target)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+    x = (size - scaled.width()) / 2
+    y = (size - scaled.height()) / 2
+    painter.drawImage(QRectF(x, y, scaled.width(), scaled.height()), scaled)
     painter.end()
     return pm
 
@@ -65,9 +96,7 @@ def make_app_icon(color_hex: str = BRAND_HEX) -> QIcon:
         for s in _ICON_SIZES:
             icon.addPixmap(_render(s, color_hex))
     except Exception:
-        # QtSvg missing or render failure - fall back to whatever QIcon can do
-        # with the raw file (PySide6 bundles the SVG image plugin).
-        icon = QIcon(str(resource_path("vector.svg")))
+        icon = QIcon(str(resource_path(_LOGO_FILE)))
     return icon
 
 
@@ -77,4 +106,4 @@ def logo_pixmap(size: int = 64, color_hex: str = BRAND_HEX) -> QPixmap:
     try:
         return _render(size, color_hex)
     except Exception:
-        return QPixmap(str(resource_path("vector.svg")))
+        return QPixmap(str(resource_path(_LOGO_FILE)))

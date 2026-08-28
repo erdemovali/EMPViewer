@@ -11,7 +11,11 @@
 ; optional task below just opens the Default-apps page for them.
 
 #define AppName    "EMPViewer"
-#define AppVersion "1.0.0"
+; Overridable from build.py:  iscc /DMyAppVersion=1.2.3 packaging\EMPViewer.iss
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
+#define AppVersion MyAppVersion
 #define AppPublisher "EMPViewer"
 #define AppExe     "EMPViewer.exe"
 
@@ -20,6 +24,10 @@ AppId={{5F3B9C1E-6A2D-4E77-9C3A-EMPVIEWER0001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoCompany={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes

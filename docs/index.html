@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EMPViewer</title>
 <meta name="description" content="Portable, cross-platform desktop viewer for .eml, .msg, .pst and .ost mail files. No installer, no Chromium, instant start.">
+<link rel="icon" type="image/png" href="emplogo.png">
 <style>
   :root {
     --bg: #ffffff;
@@ -59,7 +60,7 @@
   }
   .nav-inner { display: flex; align-items: center; gap: 16px; height: 60px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; }
-  .brand svg { display: block; }
+  .brand img { display: block; border-radius: 6px; }
   .nav-links { margin-left: auto; display: flex; gap: 22px; align-items: center; }
   .nav-links a { color: var(--muted); font-size: .93rem; font-weight: 500; }
   .nav-links a:hover { color: var(--text); text-decoration: none; }
@@ -89,6 +90,7 @@
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 20px; box-shadow: var(--shadow);
   }
+  .hero .mark img { display: block; }
   .hero h1 { font-size: clamp(2.1rem, 6vw, 3rem); margin: 0 0 12px; letter-spacing: -.03em; }
   .hero .tagline { font-size: clamp(1.05rem, 2.5vw, 1.2rem); color: var(--muted); max-width: 620px; margin: 0 auto 28px; }
   .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
@@ -158,10 +160,7 @@
 <header class="nav">
   <div class="wrap nav-inner">
     <span class="brand">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="4.5" width="20" height="15" rx="3" fill="var(--accent)"/>
-        <path d="M4 7.5l8 5.5 8-5.5" stroke="var(--accent-contrast)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <img src="emplogo.png" width="24" height="24" alt="" aria-hidden="true">
       EMPViewer
     </span>
     <nav class="nav-links">
@@ -177,10 +176,7 @@
 
   <section class="hero">
     <div class="mark">
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="4.5" width="20" height="15" rx="3" fill="var(--accent)"/>
-        <path d="M4 7.5l8 5.5 8-5.5" stroke="var(--accent-contrast)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <img src="emplogo.png" width="52" height="52" alt="EMPViewer logo">
     </div>
     <h1>EMPViewer</h1>
     <p class="tagline">A portable desktop viewer for <code>.eml</code>, <code>.msg</code>, <code>.pst</code> and <code>.ost</code> mail files. No installer, no Chromium, instant start.</p>
@@ -251,10 +247,10 @@
     <ul class="dl">
       <li><span class="plat">macOS — Apple Silicon</span> <span class="file">EMPViewer-macos-arm64.dmg</span></li>
       <li><span class="plat">macOS — Intel</span> <span class="file">EMPViewer-macos-x86_64.dmg</span></li>
-      <li><span class="plat">Windows</span> <span class="file">build via <code>python build.py --installer</code></span></li>
+      <li><span class="plat">Windows</span> <span class="file">EMPViewer-Setup.exe</span></li>
       <li><span class="plat">Linux / any</span> <span class="file">run from source — see below</span></li>
     </ul>
-    <p class="note">macOS builds are code-signed with a Developer ID and notarized by Apple — the <code>.dmg</code> opens on double-click with no Gatekeeper warning. Pick the <code>arm64</code> build on Apple Silicon, <code>x86_64</code> on Intel (check with <code>uname -m</code>).</p>
+    <p class="note">macOS builds are code-signed with an Apple Developer ID and notarized — the <code>.dmg</code> opens on double-click with no Gatekeeper warning. Pick the <code>arm64</code> build on Apple Silicon, <code>x86_64</code> on Intel (<code>uname -m</code>). Windows builds are Authenticode-signed — see the <a href="#code-signing">code signing policy</a>.</p>
   </section>
 
   <section class="block" id="default-app">
@@ -298,6 +294,28 @@ python build.py --installer       <span class="c"># Windows: EMPViewer-Setup.exe
     <p class="note">No extra setup for any format — <code>.pst</code>/<code>.ost</code> are read by the built-in parser. <code>libpff-python</code> or a <code>readpst</code> binary, if present, are used in preference but are entirely optional.</p>
   </section>
 
+  <section class="block" id="code-signing">
+    <h2>Code signing policy</h2>
+    <p>Free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>,
+      certificate by <a href="https://signpath.org">SignPath Foundation</a>. This covers the
+      Windows builds; macOS builds are signed with an Apple Developer ID and notarized.</p>
+    <div class="panel">
+      <ul>
+        <li><strong>Committers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>)</li>
+        <li><strong>Reviewers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>) — every change not authored by a committer (e.g. a pull request) is reviewed before merge.</li>
+        <li><strong>Approvers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>) — each signing request is approved manually before a release is signed.</li>
+      </ul>
+    </div>
+    <p>Binaries are built only from the source in the
+      <a href="https://github.com/erdemovali/EMPViewer">GitHub repository</a>, by the GitHub Actions
+      workflows in <code>.github/workflows/</code>.</p>
+    <p class="note"><strong>Privacy:</strong> this program will not transfer any information to other
+      networked systems unless specifically requested by the user or the person installing or
+      operating it. Remote content in messages (images, tracking pixels) is blocked until you
+      explicitly click <em>Load remote content</em>. See also
+      <a href="https://github.com/erdemovali/EMPViewer/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+  </section>
+
 </main>
 
 <footer>
@@ -306,6 +324,7 @@ python build.py --installer       <span class="c"># Windows: EMPViewer-Setup.exe
     <a href="https://github.com/erdemovali/EMPViewer">GitHub</a>
     <a href="https://github.com/erdemovali/EMPViewer/blob/main/README.md">README</a>
     <a href="https://github.com/erdemovali/EMPViewer/blob/main/docs/DAGITIM.md">Distribution guide (TR)</a>
+    <a href="#code-signing">Code signing policy</a>
     <a href="https://github.com/erdemovali/EMPViewer/releases/latest">Releases</a>
   </div>
 </footer>

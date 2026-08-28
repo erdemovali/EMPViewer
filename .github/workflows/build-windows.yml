@@ -1,0 +1,120 @@
+name: Build Windows app
+
+# Produces a portable EMPViewer.exe and an EMPViewer-Setup.exe (Inno Setup) on a
+# Windows runner. Runs the test suite first, so a green check means "packaged AND
+# imports/tests pass".
+#
+# Authenticode signing happens automatically IF these repo settings exist
+# (Settings -> Secrets and variables -> Actions). Without them you still get a
+# working unsigned build.
+#
+#   Variables:  SIGNPATH_ORGANIZATION_ID
+#               SIGNPATH_PROJECT_SLUG
+#               SIGNPATH_POLICY_SLUG            e.g. test-signing / release-signing
+#               SIGNPATH_ARTIFACT_CONFIG_SLUG  the SignPath artifact configuration
+#   Secret:     SIGNPATH_API_TOKEN
+#
+# Signing is delegated to the SignPath Foundation (https://signpath.org). Every
+# release must be approved manually in the SignPath dashboard - see the "Code
+# signing policy" section of the README.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read          # SignPath action reads the workflow run + artifact
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Run tests (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build portable .exe + installer
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python build.py --onefile
+          python build.py --installer
+
+      - name: Stage unsigned artifacts
+        run: |
+          mkdir dist\out
+          copy dist\EMPViewer.exe            dist\out\
+          copy dist\EMPViewer-Setup.exe      dist\out\
+
+      - name: Upload unsigned artifact
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: EMPViewer-windows-unsigned
+          path: dist/out/*
+
+      - name: Submit signing request to SignPath
+        id: sign
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed
+
+      - name: Choose artifacts to publish
+        shell: bash
+        run: |
+          mkdir -p dist/publish
+          if [ -d dist/signed ] && [ -n "$(ls -A dist/signed 2>/dev/null)" ]; then
+            cp -r dist/signed/* dist/publish/
+            echo "Publishing SIGNED artifacts."
+          else
+            cp -r dist/out/* dist/publish/
+            echo "Publishing UNSIGNED artifacts (no SignPath configuration)."
+          fi
+          ls -la dist/publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EMPViewer-windows
+          path: dist/publish/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: EMPViewer-windows
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

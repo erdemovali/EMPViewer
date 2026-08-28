@@ -25,61 +25,70 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
 APP_NAME = "EMPViewer"
 BUNDLE_ID = "com.empviewer.app"
+LOGO_SRC = ROOT / "emplogo.png"
 
 DATA_SEP = ";" if os.name == "nt" else ":"
 
 DOC_EXTENSIONS = ["eml", "msg", "pst", "ost"]
 
 
+def read_version() -> str:
+    """Single source of truth for the build version: the ``VERSION`` file."""
+
+    try:
+        v = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        return v or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
 # --------------------------------------------------------------------------- #
 # Icons
 # --------------------------------------------------------------------------- #
 def ensure_icons() -> None:
-    """Materialise assets/app.ico + app.png from vector.svg (repo root).
+    """Materialise assets/app.ico + app.png (+ app.icns on macOS) from emplogo.png.
 
-    The window/taskbar icon at runtime comes straight from ``vector.svg`` via
+    The window/taskbar icon at runtime comes straight from ``emplogo.png`` via
     :mod:`utils.branding`; PyInstaller's ``--icon`` needs a real .ico/.icns, so
-    we rasterise them here. Falls back to a plain coloured tile if anything
-    about SVG rendering is unavailable.
+    we down-sample them here. Falls back to a plain brand-coloured tile if the
+    source image can't be read.
     """
 
     ASSETS.mkdir(exist_ok=True)
     ico, icns, png = ASSETS / "app.ico", ASSETS / "app.icns", ASSETS / "app.png"
     try:
-        from PySide6.QtCore import QByteArray, QRectF, Qt
+        from PySide6.QtCore import QRectF, Qt
         from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
 
         _ = QGuiApplication.instance() or QGuiApplication([])
         brand = QColor(66, 133, 244)
 
-        def canvas(size: int) -> QImage:
-            return QImage(size, size, QImage.Format.Format_ARGB32)
-
-        svg_path = ROOT / "vector.svg"
-        renderer = None
-        if svg_path.exists():
-            try:
-                from PySide6.QtSvg import QSvgRenderer
-
-                text = svg_path.read_text(encoding="utf-8").replace('fill="black"', f'fill="{brand.name()}"')
-                renderer = QSvgRenderer(QByteArray(text.encode("utf-8")))
-            except Exception:
-                renderer = None
+        source = QImage(str(LOGO_SRC))
+        if source.isNull():
+            source = None
+        else:
+            source = source.convertToFormat(QImage.Format.Format_ARGB32)
 
         def render(size: int) -> QImage:
-            img = canvas(size)
+            img = QImage(size, size, QImage.Format.Format_ARGB32)
             img.fill(Qt.GlobalColor.transparent)
             p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
             p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            if renderer is not None and renderer.isValid():
-                vb = renderer.viewBoxF()
-                if vb.width() <= 0:
-                    vb = QRectF(0, 0, 50, 53)
-                pad = size * 0.14
-                avail = size - 2 * pad
-                scale = min(avail / vb.width(), avail / vb.height())
-                w, h = vb.width() * scale, vb.height() * scale
-                renderer.render(p, QRectF((size - w) / 2, (size - h) / 2, w, h))
+            if source is not None:
+                pad = round(size * 0.08)
+                inner = max(1, size - 2 * pad)
+                cur = source
+                while cur.width() > inner * 2 and cur.height() > inner * 2:
+                    cur = cur.scaled(
+                        cur.width() // 2, cur.height() // 2,
+                        Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                    )
+                cur = cur.scaled(
+                    inner, inner,
+                    Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
+                )
+                p.drawImage(QRectF((size - cur.width()) / 2, (size - cur.height()) / 2, cur.width(), cur.height()), cur)
             else:
                 p.setBrush(brand)
                 p.setPen(Qt.PenStyle.NoPen)
@@ -91,7 +100,7 @@ def ensure_icons() -> None:
         render(256).save(str(ico), "ICO")
         if sys.platform == "darwin":
             _make_icns(icns, render)
-        print("Rendered app icons from", "vector.svg" if renderer else "fallback tile")
+        print("Rendered app icons from", "emplogo.png" if source is not None else "fallback tile")
     except Exception as exc:  # pragma: no cover
         print(f"Could not render icons ({exc}); continuing without a custom icon.")
 
@@ -122,6 +131,51 @@ def _make_icns(icns_path: Path, render) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Windows version resource
+# --------------------------------------------------------------------------- #
+def _version_tuple(v: str) -> tuple[int, int, int, int]:
+    parts = [int(p) for p in v.split(".") if p.isdigit()][:4]
+    parts += [0] * (4 - len(parts))
+    return tuple(parts)  # type: ignore[return-value]
+
+
+def _write_win_version_file() -> Path | None:
+    """Emit a PyInstaller --version-file so the .exe carries ProductName /
+    ProductVersion (required by the SignPath Foundation signing policy)."""
+
+    v = read_version()
+    vt = _version_tuple(v)
+    out = ROOT / "build" / "win_version_info.txt"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(
+        f"""# UTF-8 - generated by build.py from ./VERSION
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={vt}, prodvers={vt},
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('040904B0', [
+        StringStruct('CompanyName', '{APP_NAME}'),
+        StringStruct('FileDescription', 'Viewer for .eml, .msg, .pst and .ost mail files'),
+        StringStruct('FileVersion', '{v}'),
+        StringStruct('InternalName', '{APP_NAME}'),
+        StringStruct('LegalCopyright', '(c) 2026 {APP_NAME} contributors. MIT License.'),
+        StringStruct('OriginalFilename', '{APP_NAME}.exe'),
+        StringStruct('ProductName', '{APP_NAME}'),
+        StringStruct('ProductVersion', '{v}')])
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+""",
+        encoding="utf-8",
+    )
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # PyInstaller invocation
 # --------------------------------------------------------------------------- #
 def pyinstaller_args(mode: str) -> list[str]:
@@ -132,7 +186,7 @@ def pyinstaller_args(mode: str) -> list[str]:
         "--clean",
         mode,  # --onefile or --onedir
         "--add-data", f"{ASSETS}{DATA_SEP}assets",
-        "--add-data", f"{ROOT / 'vector.svg'}{DATA_SEP}.",
+        "--add-data", f"{LOGO_SRC}{DATA_SEP}.",
         # extract_msg ships data files and lazily-imported submodules.
         "--collect-all", "extract_msg",
         "--collect-submodules", "extract_msg",
@@ -144,8 +198,12 @@ def pyinstaller_args(mode: str) -> list[str]:
         "--hidden-import", "striprtf.striprtf",
     ]
 
-    if sys.platform.startswith("win") and (ASSETS / "app.ico").exists():
-        args += ["--icon", str(ASSETS / "app.ico")]
+    if sys.platform.startswith("win"):
+        if (ASSETS / "app.ico").exists():
+            args += ["--icon", str(ASSETS / "app.ico")]
+        vf = _write_win_version_file()
+        if vf is not None:
+            args += ["--version-file", str(vf)]
     if sys.platform == "darwin":
         icon = ASSETS / "app.icns"
         if icon.exists():
@@ -195,6 +253,9 @@ def patch_mac_info_plist() -> None:
     ]
     info.setdefault("LSMinimumSystemVersion", "11.0")
     info["NSHighResolutionCapable"] = True
+    v = read_version()
+    info["CFBundleShortVersionString"] = v
+    info["CFBundleVersion"] = v
 
     with app_plist.open("wb") as fh:
         plistlib.dump(info, fh)
@@ -224,7 +285,7 @@ def make_windows_installer() -> None:
             "then run:  iscc packaging\\EMPViewer.iss"
         )
         return
-    subprocess.check_call([iscc, str(iss)])
+    subprocess.check_call([iscc, f"/DMyAppVersion={read_version()}", str(iss)])
     print("Wrote", ROOT / "dist" / f"{APP_NAME}-Setup.exe")
 
 

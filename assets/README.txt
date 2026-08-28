@@ -1,8 +1,9 @@
-Place real application icons here:
+Generated at build time by build.py from ../emplogo.png (the single logo source):
 
-    app.ico   - Windows icon (multi-resolution: 16,32,48,256)
-    app.icns  - macOS icon set
-    app.png   - 256x256 source (optional)
+    app.ico   - Windows icon  (256px)
+    app.icns  - macOS icon set (16..512, via iconutil)
+    app.png   - 256px PNG
 
-If these are missing, build.py generates plain placeholder icons so the build
-still succeeds.
+These are NOT committed - `build.py ensure_icons()` re-creates them on every
+build. If emplogo.png can't be read, build.py falls back to a plain brand-blue
+tile so the build still succeeds.

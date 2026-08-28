@@ -5,3 +5,8 @@
 *.yml       text eol=lf
 *.yaml      text eol=lf
 *.plist     text eol=lf
+
+# Binary assets - never munge line endings / try to diff.
+*.png       binary
+*.ico       binary
+*.icns      binary

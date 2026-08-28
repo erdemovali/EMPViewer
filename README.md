@@ -29,7 +29,7 @@ instant start.
   close it; right-click also works), a rich message viewer with an attachment bar on
   the right, and a Sender/Subject/Date message list that appears **only** when a
   PST/OST folder is selected — a single `.eml`/`.msg` gets the whole viewer pane.
-  App icon is rendered from `vector.svg`. System / Light / Dark themes, remembered
+  App icon is rendered from `emplogo.png`. System / Light / Dark themes, remembered
   across restarts.
 - **Attachments** — click to open with the OS default app (a copy is written to a
   per-session temp dir that is wiped on exit); right-click for **Save As…**.
@@ -113,6 +113,22 @@ python build.py --clean    # wipe build/ and dist/ first
 `--onefile` self-extracts to a temp dir on first launch (~1–2 s). Use `--onedir` when
 true instant start matters more than shipping a single file.
 
+## Build & release
+
+Release binaries are built **only from this repository's source** by GitHub Actions —
+the build scripts and CI configuration are in the repo:
+
+| Workflow | Runner | Produces |
+|---|---|---|
+| `.github/workflows/build-windows.yml` | `windows-latest` | `EMPViewer.exe`, `EMPViewer-Setup.exe` (Authenticode-signed via SignPath when configured) |
+| `.github/workflows/build-macos.yml` | `macos-14` / `macos-13` | `EMPViewer-macos-{arm64,x86_64}.dmg` (Developer ID signed + notarized) |
+
+The version is the single line in **`VERSION`**. To cut a release: bump `VERSION`,
+commit, then `git tag vX.Y.Z && git push --tags`. Both workflows run on the tag, the
+Windows installer is submitted to SignPath for signing (which **requires a manual
+approval** in the SignPath dashboard), and the `release` job attaches every artifact
+to the GitHub Release.
+
 ## Project layout
 
 ```
@@ -145,6 +161,28 @@ pytest
 `.eml` and the helper/dispatch layers are covered without any third-party library.
 `.msg` and `.pst` round-trip tests activate automatically when you place
 `tests/data/sample.msg` / `tests/data/sample.pst`.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org). This covers the Windows builds; macOS builds
+are signed with an Apple Developer ID and notarized.
+
+- **Committers:** Erdem Ovali ([@erdemovali](https://github.com/erdemovali))
+- **Reviewers:** Erdem Ovali ([@erdemovali](https://github.com/erdemovali)) — every change that
+  is not authored by a committer (e.g. a pull request) is reviewed before merge.
+- **Approvers:** Erdem Ovali ([@erdemovali](https://github.com/erdemovali)) — each signing
+  request is approved manually in the SignPath dashboard before a release is signed.
+
+Binaries are built only from the source in this repository, by the GitHub Actions
+workflows described under **Build & release** above.
+
+**Privacy:** this program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or operating it.
+Remote content in messages (images, tracking pixels) is blocked until you explicitly
+click *Load remote content*.
+
+See also [`SECURITY.md`](SECURITY.md).
 
 ## License
 
