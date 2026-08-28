@@ -86,6 +86,14 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Gönderen veya konuya göre süz…</translation>
     </message>
     <message>
+        <source>Close search results</source>
+        <translation>Arama sonuçlarını kapat</translation>
+    </message>
+    <message>
+        <source>Search all open mail — terms, from:, to:, subject:, has:attach, after:, before:</source>
+        <translation>Tüm açık postalarda ara — terimler, from:, to:, subject:, has:attach, after:, before:</translation>
+    </message>
+    <message>
         <source>Cancel</source>
         <translation>İptal</translation>
     </message>
@@ -258,6 +266,12 @@ Bir kopya şuraya kaydedildi:</translation>
         <source>Exported %n message(s) to:</source>
         <translation>
             <numerusform>%n mesaj şuraya aktarıldı:</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n result(s)</source>
+        <translation>
+            <numerusform>%n sonuç</numerusform>
         </translation>
     </message>
     <message>

@@ -53,6 +53,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -198,6 +199,13 @@ def _fmt_date(dt: datetime | None) -> str:
     return format_datetime(dt, with_tz=False, style=style)
 
 
+def _jsonable(value):
+    """Coerce a backend_id (ints / tuples) into something JSON round-trips."""
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 class MailFilterProxy(QSortFilterProxyModel):
     """Filters the message list on sender + subject; sorts via ``_SORT_ROLE``."""
 
@@ -290,6 +298,12 @@ class MainWindow(QMainWindow):
         self._pst_docs: list[PstDocument] = []
         self._runnables: list[Any] = []
         self._active_backend = None  # backend of the currently selected PST folder
+        self._pending_hit: dict | None = None  # search hit awaiting its folder to load
+
+        from utils.helpers import session_temp_dir
+        from utils.search_index import SearchIndex
+
+        self.search_index = SearchIndex(str(session_temp_dir() / "search.sqlite"))
 
         self._build_ui()
         self._build_menus()
@@ -360,14 +374,45 @@ class MainWindow(QMainWindow):
         list_lay.addWidget(self.table)
         self._list_panel.hide()
 
+        # -- search results panel (reuses the message-list model) --------- #
+        self.results_model = EmailListModel(self)
+        self.results_view = QTableView()
+        self.results_view.setModel(self.results_model)
+        self.results_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.results_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.results_view.verticalHeader().setVisible(False)
+        self.results_view.setAlternatingRowColors(True)
+        self.results_view.horizontalHeader().setStretchLastSection(True)
+        self.results_view.setColumnWidth(COL_SENDER, 200)
+        self.results_view.setColumnHidden(COL_SIZE, True)
+        self.results_view.doubleClicked.connect(self._open_result_row)
+        self._results_label = QLabel()
+        _rclose = QToolButton()
+        _rclose.setText("✕")
+        _rclose.setToolTip(self.tr("Close search results"))
+        _rclose.clicked.connect(self._clear_search)
+        _rhead = QHBoxLayout()
+        _rhead.setContentsMargins(4, 2, 4, 2)
+        _rhead.addWidget(self._results_label, 1)
+        _rhead.addWidget(_rclose)
+        self._results_panel = QWidget()
+        _rlay = QVBoxLayout(self._results_panel)
+        _rlay.setContentsMargins(0, 0, 0, 0)
+        _rlay.setSpacing(2)
+        _rlay.addLayout(_rhead)
+        _rlay.addWidget(self.results_view)
+        self._results_panel.hide()
+
         self.viewer = ViewerWidget()
 
         right_split = QSplitter(Qt.Orientation.Vertical)
+        right_split.addWidget(self._results_panel)
         right_split.addWidget(self._list_panel)
         right_split.addWidget(self.viewer)
         right_split.setStretchFactor(0, 0)
-        right_split.setStretchFactor(1, 1)
-        right_split.setSizes([240, 620])
+        right_split.setStretchFactor(1, 0)
+        right_split.setStretchFactor(2, 1)
+        right_split.setSizes([240, 240, 500])
         self._right_split = right_split
 
         main_split = QSplitter(Qt.Orientation.Horizontal)
@@ -378,9 +423,23 @@ class MainWindow(QMainWindow):
         main_split.setSizes([240, 940])
         self._main_split = main_split
 
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText(
+            self.tr("Search all open mail — terms, from:, to:, subject:, has:attach, after:, before:")
+        )
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.returnPressed.connect(self._run_search)
+        self.search_edit.textChanged.connect(lambda t: self._clear_search() if not t else None)
+        _s_esc = QShortcut(QKeySequence("Escape"), self.search_edit)
+        _s_esc.setContext(Qt.ShortcutContext.WidgetShortcut)
+        _s_esc.activated.connect(self._clear_search)
+        QShortcut(QKeySequence("Ctrl+Shift+F"), self).activated.connect(self.search_edit.setFocus)
+
         container = QWidget()
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(6, 4, 6, 0)
+        lay.setSpacing(4)
+        lay.addWidget(self.search_edit)
         lay.addWidget(main_split)
         self.setCentralWidget(container)
 
@@ -584,6 +643,7 @@ class MainWindow(QMainWindow):
             item.setData(0, _ITEM_ROLE, {"kind": "file", "message": result, "path": path})
             self.tree.addTopLevelItem(item)
             self.tree.setCurrentItem(item)
+            self._index_message({"kind": "file", "path": path}, path, result)
         elif isinstance(result, PstDocument):
             self._pst_docs.append(result)
             root_item = QTreeWidgetItem([result.display_name])
@@ -593,6 +653,7 @@ class MainWindow(QMainWindow):
             self.tree.addTopLevelItem(root_item)
             root_item.setExpanded(True)
             self.tree.setCurrentItem(root_item)
+            self._index_pst(result)
         else:  # pragma: no cover - loader contract guarantees the two types
             self._warn(self.tr("Open"), self.tr("Unknown result type from parser."))
             return
@@ -719,6 +780,129 @@ class MainWindow(QMainWindow):
         self._clear_busy()
         self._warn(self.tr("Export"), message)
 
+    # -- full-text search --------------------------------------------- #
+    @staticmethod
+    def _body_text_for_index(msg) -> str:
+        from ui.viewer_widget import _html_to_text, _strip_objects
+
+        if msg.body_text and msg.body_text.strip():
+            return _strip_objects(msg.body_text)
+        if msg.body_html:
+            return _strip_objects(_html_to_text(msg.body_html))
+        return ""
+
+    def _index_message(self, target: dict, source: str, msg) -> None:
+        self.search_index.add(
+            target, source=source,
+            sender=msg.sender, recipients=", ".join(msg.to + msg.cc + msg.bcc),
+            subject=msg.subject, body=self._body_text_for_index(msg),
+            folder=msg.folder_path or "", date=msg.date,
+            has_attachments=bool(msg.visible_attachments),
+        )
+        self.search_index.commit()
+
+    def _index_pst(self, doc: PstDocument) -> None:
+        """Walk every folder of *doc* and index its stubs (no body fetch)."""
+
+        def work(*, should_cancel):
+            for node in [doc.root, *doc.root.iter_descendants()]:
+                if should_cancel():
+                    return
+                fpath = self._folder_path_for(doc, node)
+                try:
+                    stubs = doc.backend.list_messages(node.backend_id, should_cancel=should_cancel)
+                except Exception:  # noqa: BLE001
+                    continue
+                for st in stubs:
+                    self.search_index.add(
+                        {"kind": "pst", "path": doc.path, "folder": fpath,
+                         "bid": _jsonable(st.backend_id)},
+                        source=doc.path, sender=st.sender, subject=st.subject,
+                        folder=fpath, date=st.date, has_attachments=st.has_attachments,
+                    )
+            self.search_index.commit()
+
+        task = FnRunnable(work, pass_cancel=True)
+        self._track(task)
+        submit(task)
+
+    @staticmethod
+    def _folder_path_for(doc: PstDocument, node) -> str:
+        # Best-effort: the tree items carry folder_path; fall back to the name.
+        return getattr(node, "name", "") or ""
+
+    def _run_search(self) -> None:
+        text = self.search_edit.text().strip()
+        if not text:
+            self._clear_search()
+            return
+        hits = self.search_index.search(text)
+        self.results_model.set_stubs([self._hit_stub(h) for h in hits])
+        self._results_label.setText(self.tr("%n result(s)", "", len(hits)))
+        self._results_hits = hits
+        self._results_panel.show()
+
+    def _hit_stub(self, hit) -> MessageStub:
+        subject = f"[{hit.folder}] {hit.subject}" if hit.folder else hit.subject
+        stub = MessageStub(
+            backend_id=hit.target, sender=hit.sender, subject=subject,
+            date=hit.date, has_attachments=hit.has_attach,
+        )
+        return stub
+
+    def _clear_search(self) -> None:
+        if self.search_edit.text():
+            self.search_edit.blockSignals(True)
+            self.search_edit.clear()
+            self.search_edit.blockSignals(False)
+        self.results_model.set_stubs([])
+        self._results_panel.hide()
+
+    def _open_result_row(self, index: QModelIndex) -> None:
+        stub = self.results_model.stub_at(index.row())
+        if stub is not None:
+            self._open_search_hit(stub.backend_id)
+
+    def _open_search_hit(self, target: dict) -> None:
+        if not isinstance(target, dict):
+            return
+        if target.get("kind") == "file":
+            self._select_top_level_by_path(target.get("path", ""))
+            return
+        # PST hit: find the doc, select its folder tree item, queue the message.
+        path = target.get("path")
+        doc = next((d for d in self._pst_docs if d.path == path), None)
+        if doc is None:
+            return
+        item = self._find_tree_item(
+            lambda d: d.get("kind") == "pstfolder" and d.get("doc") is doc
+            and self._folder_label(d) == target.get("folder")
+        )
+        self._pending_hit = target
+        if item is not None:
+            self.tree.setCurrentItem(item)
+        else:
+            # fall back to the PST root
+            root = self._find_tree_item(lambda d: d.get("kind") == "pstroot" and d.get("doc") is doc)
+            if root is not None:
+                self.tree.setCurrentItem(root)
+
+    @staticmethod
+    def _folder_label(item_data: dict) -> str:
+        fp = item_data.get("folder_path") or ""
+        return fp.rsplit("/", 1)[-1] if fp else ""
+
+    def _find_tree_item(self, pred) -> QTreeWidgetItem | None:
+        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        while stack:
+            it = stack.pop()
+            if it is None:
+                continue
+            if pred(it.data(0, _ITEM_ROLE) or {}):
+                return it
+            stack.extend(it.child(i) for i in range(it.childCount()))
+        return None
+
     # -- message-list columns ---------------------------------------- #
     def _restore_list_columns(self) -> None:
         raw = QSettings().value("list/hiddenColumns", []) or []
@@ -755,6 +939,7 @@ class MainWindow(QMainWindow):
         self.list_model.set_stubs([])
         self.filter_edit.clear()
         self.viewer.clear()
+        self._current_folder = (doc, folder_id, folder_path)
         self._set_busy(self.tr("Loading %s…") % folder_path)
         task = ListMessagesRunnable(doc.backend, folder_id)
         task.signals.finished.connect(lambda stubs: self._on_folder_loaded(stubs))
@@ -766,6 +951,20 @@ class MainWindow(QMainWindow):
         self._clear_busy()
         self.list_model.set_stubs(stubs)
         self._status_label.setText(self.tr("%n message(s)", "", len(stubs)))
+
+        # A search hit is waiting for this folder -> select its row.
+        hit, self._pending_hit = self._pending_hit, None
+        if hit is not None:
+            want = _jsonable(hit.get("bid"))
+            for row, st in enumerate(stubs):
+                if _jsonable(st.backend_id) == want:
+                    idx = self.proxy.mapFromSource(self.list_model.index(row, 0))
+                    self.table.selectionModel().setCurrentIndex(
+                        idx, QItemSelectionModel.SelectionFlag.ClearAndSelect
+                        | QItemSelectionModel.SelectionFlag.Rows,
+                    )
+                    self.table.scrollTo(idx)
+                    break
 
     def _on_folder_error(self, message: str) -> None:
         self._clear_busy()
@@ -818,6 +1017,8 @@ class MainWindow(QMainWindow):
                     self._pst_docs.remove(doc)
         if path:
             self._open_paths.discard(path)
+            self.search_index.remove_source(path)
+        self._clear_search()
         idx = self.tree.indexOfTopLevelItem(top)
         self.tree.takeTopLevelItem(idx)
         self.list_model.set_stubs([])
@@ -1132,5 +1333,9 @@ class MainWindow(QMainWindow):
                 doc.backend.close()
             except Exception:
                 pass
+        try:
+            self.search_index.close()
+        except Exception:
+            pass
         self._persist_settings()
         super().closeEvent(event)
