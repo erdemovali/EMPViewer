@@ -1,26 +1,35 @@
 # EMPViewer
 
-A desktop viewer for `.eml`, `.msg`, `.pst` and `.ost` mail files. Windows and
-macOS. Built with Python and PySide6.
+A desktop viewer for `.eml`, `.msg`, `.pst`, `.ost`, `.mbox`, `.ics` and `.vcf`
+files. Windows and macOS. Built with Python and PySide6.
 
 Downloads: [Releases](https://github.com/erdemovali/EMPViewer/releases)
 
 ## Features
 
-- Opens `.eml`, `.msg`, `.pst` and `.ost` files.
+- Opens `.eml`, `.msg`, `.pst`, `.ost` and `.mbox` mail, plus `.ics` calendar
+  invites and `.vcf` contact cards.
 - `.eml` uses the Python standard library. `.msg` uses
   [`extract_msg`](https://pypi.org/project/extract-msg/).
 - `.pst` and `.ost` are read by a built-in pure-Python parser with no external
   dependencies. `libpff` (via `pypff`) or the `readpst` command-line tool are
   used automatically when they are available.
-- Message view with headers, HTML or plain-text body, and inline images.
-- Remote images and tracking pixels are blocked until you choose to load them.
+- **Full-text search** across every open mailbox — free terms plus `from:`,
+  `to:`, `subject:`, `has:attach`, `after:` / `before:` filters.
+- Message list with attachment / size / unread columns and an optional
+  group-by-conversation view; tabbed viewing with back / forward history.
+- Message view with all headers, a verbatim source view, HTML or plain-text
+  body, inline images, and adjustable text size.
+- Remote images and tracking pixels are blocked until you choose to load them,
+  per message or per sender.
+- `winmail.dat` / TNEF attachments are unpacked; attached e-mails open in place.
+- Export a folder or a whole PST to a tree of `.eml` files.
 - Attachments open with the system default application, or can be saved
   individually or all at once.
-- Library sidebar, a per-folder message list for PST/OST files, and drag and
-  drop to open.
-- System, light and dark themes.
-- Parsing runs off the UI thread, so large files do not freeze the window.
+- Library sidebar, drag and drop to open, system / light / dark themes,
+  English and Turkish.
+- Parsing runs off the UI thread, so large files do not freeze the window; a
+  size check warns before opening a very large store.
 
 ## Run from source
 
