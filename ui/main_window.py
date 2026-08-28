@@ -1296,16 +1296,24 @@ class MainWindow(QMainWindow):
         )
 
     def _on_update_result(self, latest: str | None, newer: bool, url: str, manual: bool) -> None:
-        QSettings().setValue("updates/lastChecked", latest or "")
+        s = QSettings()
+        s.setValue("updates/lastChecked", latest or "")
+        if newer and not manual and latest == str(s.value("updates/skipVersion", "")):
+            return  # user asked not to be nagged about this one
         if newer:
             box = QMessageBox(self)
             box.setWindowTitle(self.tr("Updates"))
             box.setText(self.tr("A new version is available: %s") % latest)
-            open_btn = box.addButton(self.tr("Open Download Page"), QMessageBox.ButtonRole.AcceptRole)
+            dl_label = (self.tr("Download") if url != "https://github.com/erdemovali/EMPViewer/releases"
+                        else self.tr("Open Download Page"))
+            open_btn = box.addButton(dl_label, QMessageBox.ButtonRole.AcceptRole)
+            skip_btn = box.addButton(self.tr("Skip This Version"), QMessageBox.ButtonRole.DestructiveRole)
             box.addButton(QMessageBox.StandardButton.Close)
             box.exec()
             if box.clickedButton() is open_btn:
                 QDesktopServices.openUrl(QUrl(url))
+            elif box.clickedButton() is skip_btn:
+                s.setValue("updates/skipVersion", latest or "")
         elif manual and latest:
             QMessageBox.information(self, self.tr("Updates"),
                                    self.tr("You are running the latest version."))

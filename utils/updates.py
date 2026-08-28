@@ -7,7 +7,9 @@ A version check is a network request, so it is opt-in (Preferences) or manual
 from __future__ import annotations
 
 import json
+import platform
 import re
+import sys
 from typing import Callable
 
 from PySide6.QtCore import QObject, QUrl
@@ -20,6 +22,29 @@ _API_LATEST = "https://api.github.com/repos/erdemovali/EMPViewer/releases/latest
 
 #: (latest_version | None, is_newer, download_url)
 ResultCb = Callable[[str | None, bool, str], None]
+
+
+def pick_asset(assets: list[dict]) -> str | None:
+    """Best download URL for this platform from a GitHub release's assets."""
+
+    names = [(a.get("name", ""), a.get("browser_download_url", "")) for a in assets or []]
+    names = [(n.lower(), url) for n, url in names if url]
+    if sys.platform.startswith("win"):
+        for n, url in names:  # prefer the installer
+            if "setup" in n and n.endswith(".exe"):
+                return url
+        for n, url in names:
+            if n.endswith(".exe"):
+                return url
+    elif sys.platform == "darwin":
+        arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x86_64"
+        for n, url in names:
+            if n.endswith(".dmg") and arch in n:
+                return url
+        for n, url in names:
+            if n.endswith(".dmg"):
+                return url
+    return None
 
 
 def current_version() -> str:
@@ -54,16 +79,20 @@ class UpdateChecker(QObject):
 
         def _done() -> None:
             latest: str | None = None
+            url = RELEASES_PAGE
             try:
                 if reply.error() == QNetworkReply.NetworkError.NoError:
                     data = json.loads(bytes(reply.readAll().data()).decode("utf-8"))
                     tag = str(data.get("tag_name") or "").strip()
                     latest = tag or None
+                    asset = pick_asset(data.get("assets") or [])
+                    if asset:
+                        url = asset
             except (ValueError, UnicodeDecodeError):
                 latest = None
             reply.deleteLater()
             cur = current_version()
             newer = bool(latest) and is_newer(latest, cur)
-            on_result(latest, newer, RELEASES_PAGE)
+            on_result(latest, newer, url)
 
         reply.finished.connect(_done)

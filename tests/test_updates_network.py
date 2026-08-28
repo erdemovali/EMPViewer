@@ -78,6 +78,34 @@ def test_newer_release_is_reported(monkeypatch) -> None:
     }
 
 
+def test_pick_asset_prefers_platform_artifact(monkeypatch) -> None:
+    assets = [
+        {"name": "EMPViewer-Setup.exe", "browser_download_url": "https://x/setup.exe"},
+        {"name": "EMPViewer.exe", "browser_download_url": "https://x/portable.exe"},
+        {"name": "EMPViewer-macos-arm64.dmg", "browser_download_url": "https://x/arm.dmg"},
+        {"name": "EMPViewer-macos-x86_64.dmg", "browser_download_url": "https://x/intel.dmg"},
+    ]
+    monkeypatch.setattr(updates.sys, "platform", "win32")
+    assert updates.pick_asset(assets) == "https://x/setup.exe"
+    monkeypatch.setattr(updates.sys, "platform", "darwin")
+    monkeypatch.setattr(updates.platform, "machine", lambda: "arm64")
+    assert updates.pick_asset(assets) == "https://x/arm.dmg"
+    monkeypatch.setattr(updates.platform, "machine", lambda: "x86_64")
+    assert updates.pick_asset(assets) == "https://x/intel.dmg"
+    assert updates.pick_asset([]) is None
+
+
+def test_check_uses_asset_url_when_present(monkeypatch) -> None:
+    monkeypatch.setattr(updates.sys, "platform", "win32")
+    body = json.dumps({
+        "tag_name": "v2.0.0",
+        "assets": [{"name": "EMPViewer-Setup.exe",
+                    "browser_download_url": "https://x/setup.exe"}],
+    }).encode()
+    captured, _ = _run_check(monkeypatch, body)
+    assert captured["url"] == "https://x/setup.exe"
+
+
 def test_same_version_is_not_newer(monkeypatch) -> None:
     captured, _ = _run_check(monkeypatch, json.dumps({"tag_name": "v1.0.3"}).encode())
     assert captured["latest"] == "v1.0.3"

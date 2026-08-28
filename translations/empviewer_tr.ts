@@ -337,8 +337,16 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Yeni bir sürüm var: %s</translation>
     </message>
     <message>
+        <source>Download</source>
+        <translation>İndir</translation>
+    </message>
+    <message>
         <source>Open Download Page</source>
         <translation>İndirme Sayfasını Aç</translation>
+    </message>
+    <message>
+        <source>Skip This Version</source>
+        <translation>Bu Sürümü Atla</translation>
     </message>
     <message>
         <source>You are running the latest version.</source>
