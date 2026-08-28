@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EMPViewer</title>
-<meta name="description" content="Portable, cross-platform desktop viewer for .eml, .msg, .pst and .ost mail files. No installer, no Chromium, instant start.">
+<meta name="description" content="Portable desktop viewer for .eml, .msg, .pst and .ost mail files, for Windows and macOS. No Chromium, instant start.">
 <link rel="icon" type="image/png" href="emplogo.png">
 <style>
   :root {
@@ -184,7 +184,7 @@
       <a class="btn primary" href="https://github.com/erdemovali/EMPViewer/releases/latest">Download</a>
       <a class="btn" href="https://github.com/erdemovali/EMPViewer">View on GitHub</a>
     </div>
-    <p class="sub">macOS (Apple Silicon &amp; Intel) &middot; Windows &middot; Linux &nbsp;|&nbsp; MIT licensed &nbsp;|&nbsp; Python 3.11+ / PySide6</p>
+    <p class="sub">macOS (Apple Silicon &amp; Intel) &middot; Windows &nbsp;|&nbsp; MIT licensed &nbsp;|&nbsp; Python 3.11+ / PySide6</p>
   </section>
 
   <section class="block" id="features">
@@ -218,7 +218,7 @@
       <div class="card">
         <span class="ico">🖱️</span>
         <h3>Drag &amp; drop + file association</h3>
-        <p>Drop any supported file onto the window. Register as the double-click handler on Windows, macOS and Linux.</p>
+        <p>Drop any supported file onto the window. Register as the double-click handler on Windows and macOS.</p>
       </div>
     </div>
   </section>
@@ -248,7 +248,6 @@
       <li><span class="plat">macOS — Apple Silicon</span> <span class="file">EMPViewer-macos-arm64.dmg</span></li>
       <li><span class="plat">macOS — Intel</span> <span class="file">EMPViewer-macos-x86_64.dmg</span></li>
       <li><span class="plat">Windows</span> <span class="file">EMPViewer-Setup.exe</span></li>
-      <li><span class="plat">Linux / any</span> <span class="file">run from source — see below</span></li>
     </ul>
     <p class="note">macOS builds are code-signed with an Apple Developer ID and notarized — the <code>.dmg</code> opens on double-click with no Gatekeeper warning. Pick the <code>arm64</code> build on Apple Silicon, <code>x86_64</code> on Intel (<code>uname -m</code>). Windows builds are Authenticode-signed — see the <a href="#code-signing">code signing policy</a>.</p>
   </section>

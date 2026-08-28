@@ -1,8 +1,8 @@
 # EMPViewer
 
-A portable, cross-platform desktop viewer for **`.eml`**, **`.msg`**, **`.pst`** and
-**`.ost`** mail files. Built with Python 3.11+ and PySide6. No installer, no Chromium,
-instant start.
+A portable desktop viewer for **`.eml`**, **`.msg`**, **`.pst`** and **`.ost`** mail
+files, for **Windows and macOS**. Built with Python 3.11+ and PySide6. No Chromium,
+instant start. (Runs from source anywhere Python + Qt do.)
 
 **Website:** <https://erdemovali.github.io/EMPViewer/> &nbsp;·&nbsp; **Downloads:** [Releases](https://github.com/erdemovali/EMPViewer/releases/latest)
 
@@ -37,7 +37,7 @@ instant start.
   *Load remote content*; inline `cid:` images always render offline.
 - **Drag & drop** — drop any supported file onto the window to open it.
 - **Double-click / file association**
-  - Windows/Linux: path is read from `sys.argv`.
+  - Windows: path is read from `sys.argv`.
   - macOS: `QFileOpenEvent` is handled, including events fired before the window exists.
 - **Responsive** — every parse and PST folder/message load runs on a `QThreadPool`
   worker; the UI never blocks, even on large `.pst` files.
