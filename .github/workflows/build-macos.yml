@@ -166,3 +166,4 @@ jobs:
         with:
           files: artifacts/**/*
           fail_on_unmatched_files: false
+          generate_release_notes: true
