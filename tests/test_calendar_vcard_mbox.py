@@ -71,6 +71,30 @@ def test_mbox_opens_as_one_folder(tmp_path) -> None:
         doc.backend.close()
 
 
+def test_open_dir_collects_supported_files_recursively(tmp_path) -> None:
+    from parsers.folder_parser import open_dir
+
+    (tmp_path / "a.eml").write_bytes(b"From: A <a@x>\r\nSubject: First\r\n\r\nbody a\r\n")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "b.eml").write_bytes(b"From: B <b@x>\r\nSubject: Second\r\n\r\nbody b\r\n")
+    (tmp_path / "c.vcf").write_bytes(VCF)
+    (tmp_path / "ignore.txt").write_bytes(b"nope")
+    (tmp_path / "nested.pst").write_bytes(b"!BDN")  # container - skipped
+
+    doc = open_dir(tmp_path)
+    try:
+        assert [c.message_count for c in doc.root.children] == [3]
+        stubs = doc.backend.list_messages(0)
+        assert sorted(s.subject for s in stubs) == ["First", "Jane Doe", "Second"]
+        # cache makes a second fetch cheap and returns the same object
+        m1 = doc.backend.get_message((0, 0))
+        assert doc.backend.get_message((0, 0)) is m1
+        assert (m1.body_text or "").strip() in ("body a", "body b")
+    finally:
+        doc.backend.close()
+
+
 def test_loader_dispatches_new_extensions(tmp_path) -> None:
     ics = tmp_path / "x.ics"
     ics.write_bytes(ICS)

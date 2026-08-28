@@ -66,7 +66,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QTableView,
-    QTabWidget,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -355,57 +354,13 @@ class MainWindow(QMainWindow):
         if QSettings().value("updates/checkOnStartup", False, type=bool):
             QTimer.singleShot(1500, lambda: self._check_updates(manual=False))
 
-    # ------------------------------------------------------------------ #
-    # Viewer tabs
-    # ------------------------------------------------------------------ #
-    @property
-    def viewer(self) -> ViewerWidget:
-        """The ViewerWidget in the current tab (created on demand)."""
-        w = self.viewer_tabs.currentWidget()
-        if w is None:
-            w = self._new_viewer_tab()
-        return w
-
-    def _new_viewer_tab(self, *, focus: bool = True) -> ViewerWidget:
-        v = ViewerWidget()
-        v.openMessageRequested.connect(lambda msg: self._open_message_in_tab(msg))
-        v.messageChanged.connect(lambda vw=v: self._on_tab_message_changed(vw))
-        idx = self.viewer_tabs.addTab(v, self.tr("(empty)"))
-        if focus:
-            self.viewer_tabs.setCurrentIndex(idx)
-        return v
-
-    def _close_tab(self, index: int) -> None:
-        if self.viewer_tabs.count() <= 1:
-            self.viewer.clear()
-            self._on_tab_message_changed(self.viewer)
-            return
-        w = self.viewer_tabs.widget(index)
-        self.viewer_tabs.removeTab(index)
-        if w is not None:
-            w.deleteLater()
-
-    def _open_message_in_tab(self, message) -> None:
-        v = self._new_viewer_tab()
-        v.set_message(message)
-
-    def _on_tab_message_changed(self, vw: ViewerWidget) -> None:
-        idx = self.viewer_tabs.indexOf(vw)
-        if idx >= 0:
-            m = vw._message
-            title = m.display_name if m is not None else self.tr("(empty)")
-            self.viewer_tabs.setTabText(idx, (title[:28] + "…") if len(title) > 29 else title)
-            self.viewer_tabs.setTabToolTip(idx, title)
-        if vw is self.viewer_tabs.currentWidget():
-            self._sync_nav_actions()
-
     def _sync_nav_actions(self) -> None:
         back = getattr(self, "_act_back", None)
         if back is None:
             return  # menus not built yet
-        v = self.viewer_tabs.currentWidget()
-        back.setEnabled(bool(v) and v.can_go_back())
-        self._act_fwd.setEnabled(bool(v) and v.can_go_forward())
+        v = self.viewer
+        back.setEnabled(v.can_go_back())
+        self._act_fwd.setEnabled(v.can_go_forward())
 
     # ------------------------------------------------------------------ #
     # UI construction
@@ -498,22 +453,18 @@ class MainWindow(QMainWindow):
         _rlay.addWidget(self.results_view)
         self._results_panel.hide()
 
-        self.viewer_tabs = QTabWidget()
-        self.viewer_tabs.setTabsClosable(True)
-        self.viewer_tabs.setMovable(True)
-        self.viewer_tabs.setDocumentMode(True)
-        self.viewer_tabs.tabCloseRequested.connect(self._close_tab)
-        self.viewer_tabs.currentChanged.connect(lambda _i: self._sync_nav_actions())
-        self._new_viewer_tab()
+        self.viewer = ViewerWidget()
+        self.viewer.openMessageRequested.connect(self.viewer.set_message)
+        self.viewer.messageChanged.connect(self._on_viewer_message_changed)
 
         right_split = QSplitter(Qt.Orientation.Vertical)
         right_split.addWidget(self._results_panel)
         right_split.addWidget(self._list_panel)
-        right_split.addWidget(self.viewer_tabs)
+        right_split.addWidget(self.viewer)
         right_split.setStretchFactor(0, 0)
         right_split.setStretchFactor(1, 0)
         right_split.setStretchFactor(2, 1)
-        right_split.setSizes([240, 240, 500])
+        right_split.setSizes([220, 240, 560])
         self._right_split = right_split
 
         main_split = QSplitter(Qt.Orientation.Horizontal)
@@ -565,6 +516,9 @@ class MainWindow(QMainWindow):
         act_open = file_menu.addAction(self.tr("&Open…"))
         act_open.setShortcut(QKeySequence.StandardKey.Open)
         act_open.triggered.connect(self._choose_files)
+        act_open_dir = file_menu.addAction(self.tr("Open &Folder…"))
+        act_open_dir.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        act_open_dir.triggered.connect(self._choose_folder)
 
         self._recent_menu = file_menu.addMenu(self.tr("Open &Recent"))
         self._rebuild_recent_menu()
@@ -638,14 +592,6 @@ class MainWindow(QMainWindow):
         self._act_fwd = view_menu.addAction(self.tr("&Forward"))
         self._act_fwd.setShortcut(QKeySequence("Alt+Right"))
         self._act_fwd.triggered.connect(lambda: self.viewer.go_forward())
-        act_newtab = view_menu.addAction(self.tr("New &Tab"))
-        act_newtab.setShortcut(QKeySequence.StandardKey.AddTab)
-        act_newtab.triggered.connect(lambda: self._new_viewer_tab())
-        act_closetab = view_menu.addAction(self.tr("&Close Tab"))
-        act_closetab.setShortcut(QKeySequence("Ctrl+F4"))
-        act_closetab.triggered.connect(
-            lambda: self._close_tab(self.viewer_tabs.currentIndex())
-        )
         view_menu.addSeparator()
         theme_menu = view_menu.addMenu(self.tr("&Theme"))
         self._sync_nav_actions()
@@ -687,8 +633,10 @@ class MainWindow(QMainWindow):
         if sizes:
             self._main_split.setSizes([int(x) for x in sizes])
         rsizes = s.value("window/rightSplit")
-        if rsizes:
+        if rsizes and len(rsizes) == self._right_split.count():
             self._right_split.setSizes([int(x) for x in rsizes])
+        else:
+            self._balance_right_split()
 
     def _persist_settings(self) -> None:
         s = QSettings()
@@ -962,6 +910,7 @@ class MainWindow(QMainWindow):
         self._results_label.setText(self.tr("%n result(s)", "", len(hits)))
         self._results_hits = hits
         self._results_panel.show()
+        self._balance_right_split()
 
     def _hit_stub(self, hit) -> MessageStub:
         subject = f"[{hit.folder}] {hit.subject}" if hit.folder else hit.subject
@@ -978,6 +927,7 @@ class MainWindow(QMainWindow):
             self.search_edit.blockSignals(False)
         self.results_model.set_stubs([])
         self._results_panel.hide()
+        self._balance_right_split()
 
     def _open_result_row(self, index: QModelIndex) -> None:
         stub = self.results_model.stub_at(index.row())
@@ -1049,12 +999,21 @@ class MainWindow(QMainWindow):
         QSettings().setValue("list/hiddenColumns", hidden)
 
     def _show_message_list(self, visible: bool) -> None:
-        if visible and not self._list_panel.isVisible():
-            self._list_panel.show()
-            if self._list_panel.height() < 60:
-                self._right_split.setSizes([260, max(360, self._right_split.height() - 260)])
-        elif not visible and self._list_panel.isVisible():
-            self._list_panel.hide()
+        if visible == self._list_panel.isVisible():
+            return
+        self._list_panel.setVisible(visible)
+        self._balance_right_split()
+
+    def _balance_right_split(self) -> None:
+        """Keep the viewer as the dominant pane; the list / results panels get a
+        fixed slice each only while they are shown."""
+        total = max(self._right_split.height(), 640)
+        res = 220 if self._results_panel.isVisible() else 0
+        lst = 240 if self._list_panel.isVisible() else 0
+        self._right_split.setSizes([res, lst, max(240, total - res - lst)])
+
+    def _on_viewer_message_changed(self) -> None:
+        self._sync_nav_actions()
 
     def _load_folder(self, doc: PstDocument, folder_id, folder_path: str) -> None:
         self.list_model.set_stubs([])
@@ -1262,6 +1221,29 @@ class MainWindow(QMainWindow):
             self.open_path(p)
         if paths:
             s.setValue("io/lastDir", str(Path(paths[0]).parent))
+
+    def _choose_folder(self) -> None:
+        s = QSettings()
+        start_dir = str(s.value("io/lastDir", str(Path.home())))
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Open a folder of mail files"), start_dir)
+        if not folder:
+            return
+        s.setValue("io/lastDir", folder)
+        self._open_folder(folder)
+
+    def _open_folder(self, folder: str) -> None:
+        folder = str(Path(folder))
+        if folder in self._open_paths:
+            self._select_top_level_by_path(folder)
+            return
+        from parsers.folder_parser import open_dir
+
+        self._set_busy(self.tr("Scanning %s…") % Path(folder).name)
+        task = FnRunnable(open_dir, folder)
+        task.signals.finished.connect(lambda result, p=folder: self._on_loaded(p, result))
+        task.signals.error.connect(lambda msg, p=folder: self._on_load_error(p, msg))
+        self._track(task)
+        submit(task)
 
     # -- recent files ------------------------------------------------- #
     def _recent_paths(self) -> list[str]:

@@ -77,12 +77,8 @@ Bir kopya şuraya kaydedildi:</translation>
 <context>
     <name>MainWindow</name>
     <message>
-        <source>(empty)</source>
-        <extracomment>Emitted whenever a load fails, so tests can observe it without a dialog.</extracomment>
-        <translation>(boş)</translation>
-    </message>
-    <message>
         <source>Library</source>
+        <extracomment>Emitted whenever a load fails, so tests can observe it without a dialog.</extracomment>
         <translation>Kitaplık</translation>
     </message>
     <message>
@@ -116,6 +112,10 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>&amp;Open…</source>
         <translation>&amp;Aç…</translation>
+    </message>
+    <message>
+        <source>Open &amp;Folder…</source>
+        <translation>&amp;Klasör Aç…</translation>
     </message>
     <message>
         <source>Open &amp;Recent</source>
@@ -208,14 +208,6 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>&amp;Forward</source>
         <translation>&amp;İleri</translation>
-    </message>
-    <message>
-        <source>New &amp;Tab</source>
-        <translation>Yeni &amp;Sekme</translation>
-    </message>
-    <message>
-        <source>&amp;Close Tab</source>
-        <translation>Sekmeyi &amp;Kapat</translation>
     </message>
     <message>
         <source>&amp;Theme</source>
@@ -339,6 +331,14 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>Mail files (*.eml *.msg *.pst *.ost *.mbox *.ics *.vcf);;All files (*)</source>
         <translation>Posta dosyaları (*.eml *.msg *.pst *.ost *.mbox *.ics *.vcf);;Tüm dosyalar (*)</translation>
+    </message>
+    <message>
+        <source>Open a folder of mail files</source>
+        <translation>Posta dosyaları içeren bir klasör aç</translation>
+    </message>
+    <message>
+        <source>Scanning %s…</source>
+        <translation>%s taranıyor…</translation>
     </message>
     <message>
         <source>(no recent files)</source>

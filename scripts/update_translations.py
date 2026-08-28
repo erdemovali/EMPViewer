@@ -10,9 +10,26 @@ needed). Source roots scanned: ui/, parsers/, utils/, main.py.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+_BARE_AMP = re.compile(r"&(?!amp;|lt;|gt;|quot;|apos;|#)")
+_TR_BLOCK = re.compile(r"(<translation(?:\s[^>]*)?>)(.*?)(</translation>)", re.DOTALL)
+
+
+def _sanitize(ts: Path) -> None:
+    """Escape stray ``&`` inside <translation> bodies so lupdate can parse the
+    file (hand-edits routinely forget ``&amp;``)."""
+
+    try:
+        text = ts.read_text(encoding="utf-8")
+    except OSError:
+        return
+    fixed = _TR_BLOCK.sub(lambda m: m.group(1) + _BARE_AMP.sub("&amp;", m.group(2)) + m.group(3), text)
+    if fixed != text:
+        ts.write_text(fixed, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parent.parent
 TS_DIR = ROOT / "translations"
@@ -60,6 +77,8 @@ def run(check: bool) -> int:
     rc = 0
     for lang in _languages():
         ts = TS_DIR / f"empviewer_{lang}.ts"
+        if ts.exists() and not check:
+            _sanitize(ts)
         before = ts.read_bytes() if ts.exists() else b""
         subprocess.run([*lupdate, *srcs, "-ts", str(ts), "-no-obsolete", "-locations", "none"], check=True)
         after = ts.read_bytes()
