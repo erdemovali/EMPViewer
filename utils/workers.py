@@ -51,18 +51,27 @@ class FnRunnable(_BaseRunnable):
     Used for opening ``.eml`` / ``.msg`` files and for :func:`parsers.pst_parser.open_pst`.
     """
 
-    def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, fn: Callable[..., Any], *args: Any, pass_cancel: bool = False, **kwargs: Any
+    ) -> None:
         super().__init__()
         self._fn = fn
         self._args = args
         self._kwargs = kwargs
+        #: When True, ``fn`` is called with an extra ``should_cancel`` keyword
+        #: that returns this runnable's cancelled flag - lets a long operation
+        #: bail out mid-flight instead of only at the boundaries.
+        self._pass_cancel = pass_cancel
 
     @Slot()
     def run(self) -> None:  # noqa: D401
         if self._cancelled:
             return
+        kwargs = self._kwargs
+        if self._pass_cancel:
+            kwargs = {**kwargs, "should_cancel": lambda: self._cancelled}
         try:
-            result = self._fn(*self._args, **self._kwargs)
+            result = self._fn(*self._args, **kwargs)
         except ParserError as exc:
             log.info("%s failed: %s", getattr(self._fn, "__name__", self._fn), exc.message)
             if not self._cancelled:

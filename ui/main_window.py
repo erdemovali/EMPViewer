@@ -403,6 +403,14 @@ class MainWindow(QMainWindow):
         act_save_att.triggered.connect(self.viewer.save_all_attachments)
 
         file_menu.addSeparator()
+        self._act_export_folder = file_menu.addAction(self.tr("Export F&older…"))
+        self._act_export_folder.triggered.connect(lambda: self._export(entire=False))
+        self._act_export_folder.setEnabled(False)
+        self._act_export_pst = file_menu.addAction(self.tr("Export Entire &PST…"))
+        self._act_export_pst.triggered.connect(lambda: self._export(entire=True))
+        self._act_export_pst.setEnabled(False)
+
+        file_menu.addSeparator()
         act_prefs = file_menu.addAction(self.tr("&Preferences…"))
         act_prefs.setMenuRole(QAction.MenuRole.PreferencesRole)
         act_prefs.setShortcut(QKeySequence.StandardKey.Preferences)
@@ -571,6 +579,10 @@ class MainWindow(QMainWindow):
         data = current.data(0, _ITEM_ROLE) or {}
         kind = data.get("kind")
 
+        is_pst = kind in ("pstfolder", "pstroot")
+        self._act_export_folder.setEnabled(kind == "pstfolder")
+        self._act_export_pst.setEnabled(is_pst)
+
         if kind == "file":
             self.list_model.set_stubs([])
             self._active_backend = None
@@ -589,6 +601,66 @@ class MainWindow(QMainWindow):
             self._show_message_list(False)
             self.viewer.clear()
             self._update_title(None)
+
+    # -- bulk export ----------------------------------------------------- #
+    @staticmethod
+    def _find_folder_node(root, backend_id):
+        if backend_id is None:
+            return None
+        if root.backend_id == backend_id:
+            return root
+        for node in root.iter_descendants():
+            if node.backend_id == backend_id:
+                return node
+        return None
+
+    def _export(self, *, entire: bool) -> None:
+        item = self.tree.currentItem()
+        data = item.data(0, _ITEM_ROLE) if item else {}
+        doc = data.get("doc")
+        if not isinstance(doc, PstDocument):
+            return
+        if entire:
+            node, title = doc.root, self.tr("Export entire PST to…")
+        else:
+            node = self._find_folder_node(doc.root, data.get("folder_id"))
+            title = self.tr("Export folder to…")
+        if node is None:
+            return
+
+        dest = QFileDialog.getExistingDirectory(self, title)
+        if not dest:
+            return
+        try:
+            not_empty = any(Path(dest).iterdir())
+        except OSError:
+            not_empty = False
+        if not_empty and QMessageBox.question(
+            self, self.tr("Export"),
+            self.tr("That folder is not empty. Existing files with the same name "
+                    "will be left alone and new copies numbered. Continue?"),
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        from parsers.export import export_folder
+
+        self._set_busy(self.tr("Exporting messages…"))
+        task = FnRunnable(export_folder, doc.backend, node, dest, recursive=True, pass_cancel=True)
+        task.signals.finished.connect(lambda n: self._on_export_done(int(n), dest))
+        task.signals.error.connect(self._on_export_error)
+        self._track(task)
+        submit(task)
+
+    def _on_export_done(self, count: int, dest: str) -> None:
+        self._clear_busy()
+        QMessageBox.information(
+            self, self.tr("Export"),
+            self.tr("Exported %n message(s) to:", "", count) + f"\n{dest}",
+        )
+
+    def _on_export_error(self, message: str) -> None:
+        self._clear_busy()
+        self._warn(self.tr("Export"), message)
 
     # -- message-list columns ---------------------------------------- #
     def _restore_list_columns(self) -> None:
