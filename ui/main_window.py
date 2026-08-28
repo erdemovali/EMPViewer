@@ -43,6 +43,7 @@ from PySide6.QtGui import (
     QActionGroup,
     QColor,
     QDesktopServices,
+    QFont,
     QKeySequence,
     QPainter,
     QPalette,
@@ -76,7 +77,7 @@ from parsers.models import EmailMessage, MessageStub, PstDocument
 from ui import theme
 from ui.viewer_widget import ViewerWidget
 from utils.branding import make_app_icon
-from utils.helpers import filter_supported, format_datetime, is_supported_file
+from utils.helpers import filter_supported, format_datetime, human_size, is_supported_file
 from utils.workers import (
     FnRunnable,
     GetMessageRunnable,
@@ -93,8 +94,14 @@ MAX_RECENT = 10
 # --------------------------------------------------------------------------- #
 # Message-list model
 # --------------------------------------------------------------------------- #
+#: Column indices for the message list.
+COL_ATTACH, COL_SENDER, COL_SUBJECT, COL_SIZE, COL_DATE = range(5)
+
+
 class EmailListModel(QAbstractTableModel):
-    _HEADERS = ("Sender", "Subject", "Date")
+    _HEADERS = ("", "Sender", "Subject", "Size", "Date")
+    #: Columns the header context-menu lets the user hide (Subject stays put).
+    OPTIONAL_COLUMNS = (COL_ATTACH, COL_SENDER, COL_SIZE, COL_DATE)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -108,8 +115,12 @@ class EmailListModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self._HEADERS)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):  # noqa: N802
-        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+        if orientation != Qt.Orientation.Horizontal:
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
             return self._HEADERS[section]
+        if role == Qt.ItemDataRole.ToolTipRole and section == COL_ATTACH:
+            return "Has attachments"
         return None
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
@@ -117,20 +128,47 @@ class EmailListModel(QAbstractTableModel):
             return None
         stub = self._rows[index.row()]
         col = index.column()
-        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
-            if col == 0:
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == COL_ATTACH:
+                return "\U0001F4CE" if stub.has_attachments else ""
+            if col == COL_SENDER:
                 return stub.sender or "(unknown sender)"
-            if col == 1:
+            if col == COL_SUBJECT:
                 return stub.display_subject
-            if col == 2:
+            if col == COL_SIZE:
+                return human_size(stub.size) if stub.size else ""
+            if col == COL_DATE:
                 return _fmt_date(stub.date)
+
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if col == COL_ATTACH and stub.has_attachments:
+                return "Has attachments"
+            if col == COL_SENDER:
+                return stub.sender or "(unknown sender)"
+            if col == COL_SUBJECT:
+                return stub.display_subject
+
+        if role == Qt.ItemDataRole.TextAlignmentRole and col == COL_SIZE:
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        if role == Qt.ItemDataRole.FontRole and stub.unread:
+            f = QFont()
+            f.setBold(True)
+            return f
+
         if role == _SORT_ROLE:
-            if col == 0:
+            if col == COL_ATTACH:
+                return 1 if stub.has_attachments else 0
+            if col == COL_SENDER:
                 return (stub.sender or "").lower()
-            if col == 1:
+            if col == COL_SUBJECT:
                 return stub.display_subject.lower()
-            if col == 2:
+            if col == COL_SIZE:
+                return stub.size or -1
+            if col == COL_DATE:
                 return stub.date.timestamp() if stub.date else float("-inf")
+
         if role == _ITEM_ROLE:
             return stub
         return None
@@ -166,7 +204,7 @@ class MailFilterProxy(QSortFilterProxyModel):
         if not self._needle:
             return True
         model = self.sourceModel()
-        for col in (0, 1):
+        for col in (COL_SENDER, COL_SUBJECT):
             value = model.index(row, col, parent).data(Qt.ItemDataRole.DisplayRole)
             if value and self._needle in str(value).lower():
                 return True
@@ -274,15 +312,23 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSortingEnabled(True)
-        self.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
+        self.table.sortByColumn(COL_DATE, Qt.SortOrder.DescendingOrder)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         hh = self.table.horizontalHeader()
-        hh.setStretchLastSection(True)
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(0, 220)
+        hh.setStretchLastSection(False)
+        hh.setSectionResizeMode(COL_ATTACH, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(COL_SENDER, QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(COL_SUBJECT, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(COL_SIZE, QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(COL_DATE, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(COL_ATTACH, 26)
+        self.table.setColumnWidth(COL_SENDER, 200)
+        self.table.setColumnWidth(COL_SIZE, 80)
+        self.table.setColumnWidth(COL_DATE, 130)
+        hh.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._list_header_menu)
+        self._restore_list_columns()
         self.table.selectionModel().currentRowChanged.connect(self._on_table_row)
 
         self.filter_edit = QLineEdit()
@@ -543,6 +589,31 @@ class MainWindow(QMainWindow):
             self._show_message_list(False)
             self.viewer.clear()
             self._update_title(None)
+
+    # -- message-list columns ---------------------------------------- #
+    def _restore_list_columns(self) -> None:
+        raw = QSettings().value("list/hiddenColumns", []) or []
+        try:
+            hidden = {int(x) for x in raw}
+        except (TypeError, ValueError):
+            hidden = set()
+        for col in EmailListModel.OPTIONAL_COLUMNS:
+            self.table.setColumnHidden(col, col in hidden)
+
+    def _list_header_menu(self, pos) -> None:
+        menu = QMenu(self)
+        for col in EmailListModel.OPTIONAL_COLUMNS:
+            label = EmailListModel._HEADERS[col] or self.tr("Attachment")
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(not self.table.isColumnHidden(col))
+            act.toggled.connect(lambda shown, c=col: self._set_list_column(c, shown))
+        menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
+
+    def _set_list_column(self, col: int, shown: bool) -> None:
+        self.table.setColumnHidden(col, not shown)
+        hidden = [c for c in EmailListModel.OPTIONAL_COLUMNS if self.table.isColumnHidden(c)]
+        QSettings().setValue("list/hiddenColumns", hidden)
 
     def _show_message_list(self, visible: bool) -> None:
         if visible and not self._list_panel.isVisible():

@@ -152,8 +152,13 @@ class NativePstBackend(PstBackend):
 
     def list_messages(self, folder_id) -> list[MessageStub]:
         from .pst_native import (
+            MSGFLAG_HASATTACH,
+            MSGFLAG_READ,
             PID_CLIENT_SUBMIT_TIME,
             PID_DELIVERY_TIME,
+            PID_HAS_ATTACHMENTS,
+            PID_MESSAGE_FLAGS,
+            PID_MESSAGE_SIZE,
             PID_SENDER_NAME,
             PID_SENT_REPR_NAME,
             PID_SUBJECT,
@@ -174,12 +179,19 @@ class NativePstBackend(PstBackend):
                 if isinstance(sender, bytes):
                     sender = sender.decode("utf-8", "replace")
                 date = row.get(PID_DELIVERY_TIME) or row.get(PID_CLIENT_SUBMIT_TIME)
+                mflags = row.get(PID_MESSAGE_FLAGS)
+                mflags = mflags if isinstance(mflags, int) else 0
+                msize = row.get(PID_MESSAGE_SIZE)
                 stubs.append(
                     MessageStub(
                         backend_id=(folder_id, nid),
                         sender=str(sender),
                         subject=_clean_subject(str(subj)),
                         date=date if isinstance(date, datetime) else None,
+                        has_attachments=bool(row.get(PID_HAS_ATTACHMENTS))
+                        or bool(mflags & MSGFLAG_HASATTACH),
+                        size=msize if isinstance(msize, int) and msize > 0 else None,
+                        unread=not (mflags & MSGFLAG_READ),
                     )
                 )
             return stubs
@@ -315,12 +327,14 @@ class LibpffBackend(PstBackend):
             for i in range(count):
                 try:
                     m = folder.get_sub_message(i)
+                    n_att = _call(m, "get_number_of_attachments")
                     stubs.append(
                         MessageStub(
                             backend_id=(folder_id, i),
                             sender=_decode(_call(m, "get_sender_name")),
                             subject=_decode(_call(m, "get_subject")),
                             date=_pff_date(m),
+                            has_attachments=bool(n_att) if isinstance(n_att, int) else False,
                         )
                     )
                 except Exception:
