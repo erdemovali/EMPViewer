@@ -195,7 +195,7 @@ Bir kopya şuraya kaydedildi:</translation>
     </message>
     <message>
         <source>Group by &amp;Conversation</source>
-        <translation>Konuşmaya Göre &Grupla</translation>
+        <translation>Konuşmaya Göre &amp;Grupla</translation>
     </message>
     <message>
         <source>&amp;Theme</source>

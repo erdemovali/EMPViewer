@@ -53,6 +53,10 @@ def run(check: bool) -> int:
     lrelease = _tool("lrelease")
     srcs = _python_sources()
 
+    def _norm(data: bytes) -> bytes:
+        # lupdate writes CRLF on Windows; .gitattributes normalises .ts to LF.
+        return data.replace(b"\r\n", b"\n")
+
     rc = 0
     for lang in _languages():
         ts = TS_DIR / f"empviewer_{lang}.ts"
@@ -61,10 +65,12 @@ def run(check: bool) -> int:
         after = ts.read_bytes()
         if check:
             ts.write_bytes(before)  # leave the tree untouched in CI
-            if after != before:
+            if _norm(after) != _norm(before):
                 print(f"::error:: {ts.name} is stale - run scripts/update_translations.py")
                 rc = 1
         else:
+            if _norm(after) != _norm(before):
+                ts.write_bytes(_norm(after))  # keep the repo copy LF-only
             subprocess.run([*lrelease, str(ts)], check=True)
     return rc
 
