@@ -139,14 +139,17 @@
     border-left: 3px solid var(--accent); padding-left: 12px;
   }
 
-  ul.dl { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-  ul.dl li {
+  .dl { display: grid; gap: 10px; }
+  .dl a {
     display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 16px;
+    border-radius: 10px; padding: 12px 16px; color: var(--text);
+    transition: background .15s ease, border-color .15s ease;
   }
-  ul.dl .plat { font-weight: 600; }
-  ul.dl .file { color: var(--muted); font-size: .85rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .dl a:hover { text-decoration: none; background: var(--surface-2); border-color: var(--accent); }
+  .dl .plat { font-weight: 600; }
+  .dl .plat::after { content: " ↓"; color: var(--accent-text); }
+  .dl .file { color: var(--muted); font-size: .85rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
 
   footer {
     border-top: 1px solid var(--border); padding: 32px 0 48px;
@@ -183,7 +186,7 @@
     <h1>EMPViewer</h1>
     <p class="tagline">A portable desktop viewer for <code>.eml</code>, <code>.msg</code>, <code>.pst</code> and <code>.ost</code> mail files. No installer, no Chromium, instant start.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/erdemovali/EMPViewer/releases/latest">Download</a>
+      <a class="btn primary" href="#downloads">Download</a>
       <a class="btn" href="https://github.com/erdemovali/EMPViewer">View on GitHub</a>
     </div>
     <p class="sub">macOS (Apple Silicon &amp; Intel) &middot; Windows &nbsp;|&nbsp; MIT licensed &nbsp;|&nbsp; Python 3.11+ / PySide6</p>
@@ -249,12 +252,18 @@
 
   <section class="block" id="downloads">
     <h2>Downloads</h2>
-    <p>Grab the latest build from the <a href="https://github.com/erdemovali/EMPViewer/releases/latest">Releases</a> page:</p>
-    <ul class="dl">
-      <li><span class="plat">macOS — Apple Silicon</span> <span class="file">EMPViewer-macos-arm64.dmg</span></li>
-      <li><span class="plat">macOS — Intel</span> <span class="file">EMPViewer-macos-x86_64.dmg</span></li>
-      <li><span class="plat">Windows</span> <span class="file">EMPViewer-Setup.exe</span></li>
-    </ul>
+    <p>Each link downloads the latest release directly. Older versions and
+      checksums are on the <a href="https://github.com/erdemovali/EMPViewer/releases">Releases</a> page.</p>
+    <div class="dl">
+      <a href="https://github.com/erdemovali/EMPViewer/releases/latest/download/EMPViewer-macos-arm64.dmg">
+        <span class="plat">macOS — Apple Silicon</span> <span class="file">EMPViewer-macos-arm64.dmg</span></a>
+      <a href="https://github.com/erdemovali/EMPViewer/releases/latest/download/EMPViewer-macos-x86_64.dmg">
+        <span class="plat">macOS — Intel</span> <span class="file">EMPViewer-macos-x86_64.dmg</span></a>
+      <a href="https://github.com/erdemovali/EMPViewer/releases/latest/download/EMPViewer-Setup.exe">
+        <span class="plat">Windows — installer</span> <span class="file">EMPViewer-Setup.exe</span></a>
+      <a href="https://github.com/erdemovali/EMPViewer/releases/latest/download/EMPViewer.exe">
+        <span class="plat">Windows — portable</span> <span class="file">EMPViewer.exe</span></a>
+    </div>
     <p class="note">macOS builds are code-signed with an Apple Developer ID and notarized — the <code>.dmg</code> opens on double-click with no Gatekeeper warning. Pick the <code>arm64</code> build on Apple Silicon, <code>x86_64</code> on Intel (<code>uname -m</code>). Windows builds are Authenticode-signed — see the <a href="#code-signing">code signing policy</a>.</p>
   </section>
 
