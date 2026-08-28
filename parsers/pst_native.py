@@ -756,16 +756,27 @@ class PstFile:
         subs = self.ndb.read_subnodes(ref[1])
         pc = PC(self.ndb, blocks, subs)
         name = pc.get_str(PID_ATTACH_LONG_FILENAME, PID_ATTACH_FILENAME) or "attachment"
-        data = pc.get(PID_ATTACH_DATA_BIN)
+        method = pc.get(PID_ATTACH_METHOD)
+        method = method if isinstance(method, int) else 0
+        # ATTACH_BY_VALUE (1) is the only method whose 0x3701 is real file bytes;
+        # ATTACH_EMBEDDED_MSG (5) / ATTACH_OLE (6) store an object stream, not a
+        # file, so surfacing those 8 bytes as "data" is worse than nothing.
+        embedded_msg = method == 5
+        data = pc.get(PID_ATTACH_DATA_BIN) if method in (0, 1) else None
         if not isinstance(data, (bytes, bytearray)):
             data = b""
         cid = pc.get_str(PID_ATTACH_CONTENT_ID)
-        mime = pc.get_str(PID_ATTACH_MIME_TAG) or "application/octet-stream"
+        mime = pc.get_str(PID_ATTACH_MIME_TAG) or (
+            "message/rfc822" if embedded_msg else "application/octet-stream"
+        )
+        if embedded_msg and not name.lower().endswith((".msg", ".eml")):
+            name = f"{name}.msg" if name != "attachment" else "attached message.msg"
         return {
             "filename": name,
             "data": bytes(data),
             "mime_type": mime,
             "content_id": cid.strip("<>") if cid else None,
+            "attach_kind": "message" if embedded_msg else "",
         }
 
 

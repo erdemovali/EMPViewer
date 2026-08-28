@@ -96,6 +96,9 @@ def _show_crash_dialog(text: str) -> None:  # pragma: no cover - GUI path
 
         if QApplication.instance() is None:
             return
+
+        # Deliberately not translated: this is a last-resort handler that must
+        # work even when the app (translators included) is in a bad state.
         box = QMessageBox()
         box.setIcon(QMessageBox.Icon.Critical)
         box.setWindowTitle("EMPViewer - unexpected error")

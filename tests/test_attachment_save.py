@@ -7,9 +7,23 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from parsers.models import Attachment, EmailMessage
-from ui.viewer_widget import ViewerWidget
+from ui.viewer_widget import AttachmentChip, ViewerWidget
 
 _app = QApplication.instance() or QApplication([])
+
+
+def test_message_kind_attachment_chip_opens_embedded_not_os() -> None:
+    embedded = EmailMessage(subject="Inner", sender="x@y", body_text="inner body")
+    att = Attachment(
+        filename="forwarded.eml", mime_type="message/rfc822", data=b"raw",
+        attach_kind="message", embedded=embedded,
+    )
+    chip = AttachmentChip(att)
+    assert chip._is_message is True
+    assert chip.text().startswith("✉")  # envelope glyph prefix
+    # A plain file chip stays a plain file chip.
+    plain = AttachmentChip(Attachment(filename="a.pdf", mime_type="application/pdf", data=b"%PDF"))
+    assert plain._is_message is False
 
 
 def test_save_all_attachments_cannot_escape_the_target_dir(tmp_path, monkeypatch) -> None:

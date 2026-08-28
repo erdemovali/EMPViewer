@@ -106,6 +106,37 @@ def test_threading_and_importance_fields() -> None:
     assert msg.importance == "high"
 
 
+def test_message_rfc822_becomes_a_navigable_attachment() -> None:
+    inner = (
+        b"From: Deep Sender <deep@x.com>\r\n"
+        b"Subject: the inner one\r\n\r\n"
+        b"inner body text\r\n"
+    )
+    outer = (
+        b'Content-Type: multipart/mixed; boundary="B"\r\n'
+        b"Subject: carrier\r\nFrom: a@x.com\r\n\r\n"
+        b"--B\r\nContent-Type: text/plain\r\n\r\nplease see attached\r\n"
+        b"--B\r\nContent-Type: message/rfc822\r\n"
+        b'Content-Disposition: attachment; filename="fwd.eml"\r\n\r\n'
+        + inner
+        + b"\r\n--B--\r\n"
+    )
+    msg = parse_eml_bytes(outer)
+
+    # The inner body must NOT have leaked into the carrier.
+    assert "inner body text" not in (msg.body_text or "")
+    assert "please see attached" in (msg.body_text or "")
+
+    atts = msg.visible_attachments
+    assert len(atts) == 1
+    att = atts[0]
+    assert att.attach_kind == "message"
+    assert att.embedded is not None
+    assert att.embedded.subject == "the inner one"
+    assert "inner body text" in (att.embedded.body_text or "")
+    assert att.embedded.sender == "Deep Sender <deep@x.com>"
+
+
 def test_smime_signed_is_detected() -> None:
     raw = (
         b'Content-Type: multipart/signed; protocol="application/pkcs7-signature";'

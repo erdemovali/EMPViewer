@@ -96,10 +96,10 @@ MAX_RECENT = 10
 # --------------------------------------------------------------------------- #
 #: Column indices for the message list.
 COL_ATTACH, COL_SENDER, COL_SUBJECT, COL_SIZE, COL_DATE = range(5)
+_COLUMN_COUNT = 5
 
 
 class EmailListModel(QAbstractTableModel):
-    _HEADERS = ("", "Sender", "Subject", "Size", "Date")
     #: Columns the header context-menu lets the user hide (Subject stays put).
     OPTIONAL_COLUMNS = (COL_ATTACH, COL_SENDER, COL_SIZE, COL_DATE)
 
@@ -107,20 +107,30 @@ class EmailListModel(QAbstractTableModel):
         super().__init__(parent)
         self._rows: list[MessageStub] = []
 
+    def column_title(self, col: int) -> str:
+        return {
+            COL_ATTACH: self.tr("Attachment"),
+            COL_SENDER: self.tr("Sender"),
+            COL_SUBJECT: self.tr("Subject"),
+            COL_SIZE: self.tr("Size"),
+            COL_DATE: self.tr("Date"),
+        }.get(col, "")
+
     # -- Qt overrides -------------------------------------------------- #
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
         return 0 if parent.isValid() else len(self._rows)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self._HEADERS)
+        return 0 if parent.isValid() else _COLUMN_COUNT
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):  # noqa: N802
         if orientation != Qt.Orientation.Horizontal:
             return None
         if role == Qt.ItemDataRole.DisplayRole:
-            return self._HEADERS[section]
+            # The attachment column shows only a glyph; no text header.
+            return "" if section == COL_ATTACH else self.column_title(section)
         if role == Qt.ItemDataRole.ToolTipRole and section == COL_ATTACH:
-            return "Has attachments"
+            return self.tr("Has attachments")
         return None
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
@@ -143,7 +153,7 @@ class EmailListModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.ToolTipRole:
             if col == COL_ATTACH and stub.has_attachments:
-                return "Has attachments"
+                return self.tr("Has attachments")
             if col == COL_SENDER:
                 return stub.sender or "(unknown sender)"
             if col == COL_SUBJECT:
@@ -675,8 +685,7 @@ class MainWindow(QMainWindow):
     def _list_header_menu(self, pos) -> None:
         menu = QMenu(self)
         for col in EmailListModel.OPTIONAL_COLUMNS:
-            label = EmailListModel._HEADERS[col] or self.tr("Attachment")
-            act = menu.addAction(label)
+            act = menu.addAction(self.list_model.column_title(col))
             act.setCheckable(True)
             act.setChecked(not self.table.isColumnHidden(col))
             act.toggled.connect(lambda shown, c=col: self._set_list_column(c, shown))

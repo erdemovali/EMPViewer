@@ -120,40 +120,100 @@ def _rtf_to_html(msg: Any) -> str | None:
     return f"<pre style='white-space:pre-wrap;font-family:inherit'>{_html.escape(text)}</pre>"
 
 
-def _collect_attachments(msg: Any) -> list[Attachment]:
+_MAX_NEST = 5
+
+
+def _collect_attachments(msg: Any, depth: int = 0) -> list[Attachment]:
     out: list[Attachment] = []
     for att in getattr(msg, "attachments", []) or []:
         try:
             data = getattr(att, "data", None)
+            embedded: EmailMessage | None = None
             # Embedded .msg attachments expose a nested Message as ``.data``.
             if data is not None and not isinstance(data, (bytes, bytearray)):
                 nested = data
+                if depth < _MAX_NEST:
+                    try:
+                        embedded = _build_message(nested, None, depth + 1)
+                    except Exception:  # noqa: BLE001
+                        embedded = None
                 try:
                     data = nested.export()  # extract_msg >= 0.30
                 except Exception:
-                    data = None
-            if not data:
+                    data = b"" if embedded is not None else None
+            if data is None and embedded is None:
                 continue
             name = (
                 getattr(att, "longFilename", None)
                 or getattr(att, "shortFilename", None)
                 or getattr(att, "name", None)
+                or (f"{embedded.subject}.msg" if embedded and embedded.subject else None)
                 or f"attachment-{len(out) + 1}"
             )
             cid = getattr(att, "cid", None) or getattr(att, "contentId", None)
-            mime = getattr(att, "mimetype", None) or "application/octet-stream"
+            mime = getattr(att, "mimetype", None) or (
+                "message/rfc822" if embedded is not None else "application/octet-stream"
+            )
             out.append(
                 Attachment(
                     filename=str(name),
                     mime_type=str(mime),
-                    data=bytes(data),
+                    data=bytes(data or b""),
                     is_inline=bool(cid),
                     content_id=str(cid).strip("<>").strip() if cid else None,
+                    attach_kind="message" if embedded is not None else "",
+                    embedded=embedded,
                 )
             )
         except Exception:
             # One bad attachment must not sink the whole message.
             continue
+    return out
+
+
+def _build_message(msg: Any, source_path: str | None, depth: int = 0) -> EmailMessage:
+    """Normalise one ``extract_msg`` Message (top-level or embedded)."""
+
+    html = _decode_html(getattr(msg, "htmlBody", None))
+    text = getattr(msg, "body", None) or None
+    if not html and not text:
+        html = _rtf_to_html(msg)
+
+    header_obj = getattr(msg, "header", None)
+    headers: dict[str, str] = {}
+    if header_obj is not None:
+        try:
+            headers = {k: str(v) for k, v in header_obj.items()}
+        except Exception:
+            headers = {}
+
+    atts = _collect_attachments(msg, depth)
+    msg_class = str(getattr(msg, "messageClass", "") or "").lower()
+    att_names = " ".join(a.filename.lower() for a in atts)
+    is_signed = "smime" in msg_class or "signed" in msg_class or ".p7s" in att_names
+    is_encrypted = ".p7m" in att_names or "encrypted" in msg_class
+
+    out = EmailMessage(
+        subject=str(getattr(msg, "subject", "") or ""),
+        sender=str(getattr(msg, "sender", "") or ""),
+        to=_as_list(getattr(msg, "to", None)),
+        cc=_as_list(getattr(msg, "cc", None)),
+        bcc=_as_list(getattr(msg, "bcc", None)),
+        date=_coerce_date(getattr(msg, "date", None)),
+        headers=headers,
+        body_html=html,
+        body_text=text,
+        attachments=atts,
+        source_path=source_path,
+        message_id=(str(getattr(msg, "messageId", "") or "").strip()
+                    or _hget(headers, "Message-ID") or None),
+        in_reply_to=(_refs(_hget(headers, "In-Reply-To")) or [None])[0],
+        references=_refs(_hget(headers, "References")),
+        importance=_importance_msg(getattr(msg, "importance", None)),
+        is_signed=is_signed,
+        is_encrypted=is_encrypted,
+    )
+    enrich_from_headers(out)
     return out
 
 
@@ -172,47 +232,7 @@ def parse_msg(path: str | Path) -> EmailMessage:
         raise CorruptFileError(str(p), f"extract_msg could not read this file: {exc}") from exc
 
     try:
-        html = _decode_html(getattr(msg, "htmlBody", None))
-        text = getattr(msg, "body", None) or None
-        if not html and not text:
-            html = _rtf_to_html(msg)
-
-        header_obj = getattr(msg, "header", None)
-        headers: dict[str, str] = {}
-        if header_obj is not None:
-            try:
-                headers = {k: str(v) for k, v in header_obj.items()}
-            except Exception:
-                headers = {}
-
-        atts = _collect_attachments(msg)
-        msg_class = str(getattr(msg, "messageClass", "") or "").lower()
-        att_names = " ".join(a.filename.lower() for a in atts)
-        is_signed = "smime" in msg_class or "signed" in msg_class or ".p7s" in att_names
-        is_encrypted = ".p7m" in att_names or "encrypted" in msg_class
-
-        out = EmailMessage(
-            subject=str(getattr(msg, "subject", "") or ""),
-            sender=str(getattr(msg, "sender", "") or ""),
-            to=_as_list(getattr(msg, "to", None)),
-            cc=_as_list(getattr(msg, "cc", None)),
-            bcc=_as_list(getattr(msg, "bcc", None)),
-            date=_coerce_date(getattr(msg, "date", None)),
-            headers=headers,
-            body_html=html,
-            body_text=text,
-            attachments=atts,
-            source_path=str(p),
-            message_id=(str(getattr(msg, "messageId", "") or "").strip()
-                        or _hget(headers, "Message-ID") or None),
-            in_reply_to=(_refs(_hget(headers, "In-Reply-To")) or [None])[0],
-            references=_refs(_hget(headers, "References")),
-            importance=_importance_msg(getattr(msg, "importance", None)),
-            is_signed=is_signed,
-            is_encrypted=is_encrypted,
-        )
-        enrich_from_headers(out)
-        return out
+        return _build_message(msg, str(p))
     except Exception as exc:  # noqa: BLE001
         raise CorruptFileError(str(p), f"Unexpected .msg structure: {exc}") from exc
     finally:

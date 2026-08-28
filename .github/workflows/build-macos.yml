@@ -58,6 +58,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q --cov=parsers --cov=utils --cov=ui --cov-report=term-missing
 
+      - name: Check translations are up to date
+        run: python scripts/update_translations.py --check
+
       - name: Build .app
         env:
           QT_QPA_PLATFORM: offscreen

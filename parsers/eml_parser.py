@@ -13,7 +13,7 @@ from email.policy import default as default_policy
 from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
-from .errors import CorruptFileError
+from .errors import CorruptFileError, ParserError
 from .models import Attachment, EmailMessage
 
 _SIGNED_TYPES = {
@@ -81,32 +81,99 @@ def _part_text(part: PyEmailMessage) -> str:
     return payload.decode("utf-8", errors="replace")
 
 
-def _collect_bodies(msg: PyEmailMessage) -> tuple[str | None, str | None]:
-    """Return ``(html, text)`` bodies, preferring the richest available."""
+def _embedded_message(part: PyEmailMessage) -> Attachment:
+    """Turn a ``message/rfc822`` part into a message-kind :class:`Attachment`
+    carrying a parsed :attr:`Attachment.embedded` child when possible."""
+
+    payload = part.get_payload()
+    inner = payload[0] if isinstance(payload, list) and payload else None
+    raw = b""
+    parsed: EmailMessage | None = None
+    if inner is not None:
+        try:
+            raw = inner.as_bytes()
+        except Exception:  # noqa: BLE001
+            raw = b""
+        if raw:
+            try:
+                parsed = parse_eml_bytes(raw)
+            except ParserError:
+                parsed = None
+    name = _decode(part.get_filename()) or (
+        f"{(parsed.subject if parsed and parsed.subject else 'attached message')}.eml"
+    )
+    return Attachment(
+        filename=name,
+        mime_type="message/rfc822",
+        data=raw,
+        attach_kind="message",
+        embedded=parsed,
+    )
+
+
+def _partition(msg: PyEmailMessage) -> tuple[str | None, str | None, list[Attachment]]:
+    """One traversal of the MIME tree -> ``(html, text, attachments)``.
+
+    ``message/rfc822`` parts are not descended into: each becomes a message-kind
+    attachment carrying the parsed child, so the inner message's parts don't
+    leak into this one.
+    """
 
     html: str | None = None
     text: str | None = None
+    atts: list[Attachment] = []
 
-    if not msg.is_multipart():
-        ctype = msg.get_content_type()
-        body = _part_text(msg)
-        if ctype == "text/html":
-            return body, None
-        return None, body
-
-    for part in msg.walk():
-        if part.is_multipart():
-            continue
+    def visit(part: PyEmailMessage, *, is_root: bool) -> None:
+        nonlocal html, text
         ctype = part.get_content_type()
-        disp = (part.get_content_disposition() or "").lower()
-        if disp == "attachment":
-            continue
-        if ctype == "text/html" and html is None:
-            html = _part_text(part)
-        elif ctype == "text/plain" and text is None:
-            text = _part_text(part)
 
-    return html, text
+        if ctype == "message/rfc822":
+            atts.append(_embedded_message(part))
+            return
+        if part.is_multipart():
+            for sub in part.get_payload():
+                visit(sub, is_root=False)
+            return
+
+        disp = (part.get_content_disposition() or "").lower()
+        cid = part.get("Content-ID")
+        is_body = ctype in ("text/plain", "text/html") and disp != "attachment" and not cid
+        if is_body:
+            if ctype == "text/html":
+                if html is None:
+                    html = _part_text(part)
+            elif text is None:
+                text = _part_text(part)
+            return
+        if is_root and not part.is_multipart():
+            # Bare single-part message (text or otherwise): payload is the body.
+            body = _part_text(part)
+            if ctype == "text/html":
+                html = html if html is not None else body
+            else:
+                text = text if text is not None else body
+            return
+        if disp not in ("attachment", "inline") and not cid:
+            return
+
+        data = part.get_payload(decode=True)
+        if data is None:
+            return
+        filename = _decode(part.get_filename()) or (
+            f"inline-{len(atts) + 1}.{(ctype.split('/')[-1] or 'bin')}"
+        )
+        atts.append(
+            Attachment(
+                filename=filename,
+                mime_type=ctype,
+                data=data,
+                is_inline=bool(cid) or disp == "inline",
+                content_id=cid.strip("<>").strip() if cid else None,
+            )
+        )
+
+    visit(msg, is_root=True)
+    return html, text, atts
 
 
 def _refs(value: object) -> list[str]:
@@ -148,42 +215,6 @@ def _crypto_flags(msg: PyEmailMessage) -> tuple[bool, bool]:
     return signed, encrypted
 
 
-def _collect_attachments(msg: PyEmailMessage) -> list[Attachment]:
-    if not msg.is_multipart():
-        return []
-
-    attachments: list[Attachment] = []
-    for part in msg.walk():
-        if part.is_multipart():
-            continue
-        disp = (part.get_content_disposition() or "").lower()
-        cid = part.get("Content-ID")
-        ctype = part.get_content_type()
-        is_body_text = ctype in ("text/plain", "text/html") and disp != "attachment" and not cid
-        if is_body_text:
-            continue
-        if disp not in ("attachment", "inline") and not cid:
-            continue
-
-        data = part.get_payload(decode=True)
-        if data is None:
-            continue
-
-        filename = _decode(part.get_filename()) or (
-            f"inline-{len(attachments) + 1}.{(ctype.split('/')[-1] or 'bin')}"
-        )
-        attachments.append(
-            Attachment(
-                filename=filename,
-                mime_type=ctype,
-                data=data,
-                is_inline=bool(cid) or disp == "inline",
-                content_id=cid.strip("<>").strip() if cid else None,
-            )
-        )
-    return attachments
-
-
 def parse_eml_bytes(raw: bytes, *, source_path: str | None = None) -> EmailMessage:
     """Parse raw ``.eml`` bytes. Used by both :func:`parse_eml` and the tests."""
 
@@ -193,7 +224,7 @@ def parse_eml_bytes(raw: bytes, *, source_path: str | None = None) -> EmailMessa
         raise CorruptFileError(source_path or "<bytes>", f"Not a valid RFC 822 message: {exc}") from exc
 
     try:
-        html, text = _collect_bodies(msg)
+        html, text, attachments = _partition(msg)
         # Keep *every* header (last-wins for repeats; the verbatim truth for
         # duplicated Received lines etc. lives in ``raw_source``).
         headers = {key: _decode(val) for key, val in msg.items()}
@@ -208,7 +239,7 @@ def parse_eml_bytes(raw: bytes, *, source_path: str | None = None) -> EmailMessa
             headers=headers,
             body_html=html,
             body_text=text,
-            attachments=_collect_attachments(msg),
+            attachments=attachments,
             source_path=source_path,
             message_id=(str(msg.get("Message-ID")).strip() or None) if msg.get("Message-ID") else None,
             in_reply_to=(_refs(msg.get("In-Reply-To")) or [None])[0],

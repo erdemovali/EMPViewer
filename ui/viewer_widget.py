@@ -184,15 +184,32 @@ class AttachmentChip(QPushButton):
     def __init__(self, attachment: Attachment, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._att = attachment
+        self._is_message = attachment.attach_kind == "message" and attachment.embedded is not None
         self.setObjectName("AttachmentChip")
-        self.setText(f"{attachment.filename}  ·  {human_size(attachment.size)}")
+        prefix = "✉ " if self._is_message else ""
+        self.setText(f"{prefix}{attachment.filename}  ·  {human_size(attachment.size)}")
         self.setToolTip(f"{attachment.filename}\n{attachment.mime_type} — {human_size(attachment.size)}")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
-        self.clicked.connect(self.open_with_os)
+        self.clicked.connect(self._open_message if self._is_message else self.open_with_os)
 
     # -- actions --------------------------------------------------------- #
+    def _open_message(self) -> None:
+        """Show the embedded message in a modal viewer."""
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._att.embedded.display_name)
+        dlg.resize(820, 620)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(0, 0, 0, 0)
+        viewer = ViewerWidget(dlg)
+        viewer.set_message(self._att.embedded)
+        lay.addWidget(viewer)
+        dlg.exec()
+
     def open_with_os(self) -> None:
         try:
             path = write_temp_attachment(self._att.filename, self._att.data)
@@ -220,10 +237,13 @@ class AttachmentChip(QPushButton):
 
     def _menu(self, pos) -> None:
         menu = QMenu(self)
+        act_msg = menu.addAction(self.tr("Open Message")) if self._is_message else None
         act_open = menu.addAction(self.tr("Open"))
         act_save = menu.addAction(self.tr("Save As…"))
         chosen = menu.exec(self.mapToGlobal(pos))
-        if chosen == act_open:
+        if act_msg is not None and chosen == act_msg:
+            self._open_message()
+        elif chosen == act_open:
             self.open_with_os()
         elif chosen == act_save:
             self.save_as()

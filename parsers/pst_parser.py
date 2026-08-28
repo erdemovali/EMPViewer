@@ -211,6 +211,7 @@ class NativePstBackend(PstBackend):
                     data=a["data"],
                     is_inline=bool(a["content_id"]),
                     content_id=a["content_id"],
+                    attach_kind=a.get("attach_kind", ""),
                 )
                 for a in m["attachments"]
             ]
