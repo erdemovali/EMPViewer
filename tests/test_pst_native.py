@@ -18,6 +18,38 @@ from parsers._rtf import decompress_rtf
 
 
 # --------------------------------------------------------------------------- #
+# String decoding (Turkish etc. was turning into boxes)
+# --------------------------------------------------------------------------- #
+_TURKISH = [
+    "Bağlantısı Hatası hk.",
+    "İLT: Acente Bağlantı Hatası",
+    "Ağustos 2026 Pazartesi",
+    "Toplantısı Katılım kimliği",
+    "şğıışğıı",  # all-Turkish, no ASCII to anchor the heuristic
+]
+
+
+@pytest.mark.parametrize("text", _TURKISH)
+def test_decode_pst_str_handles_every_byte_form(text):
+    assert pn._decode_pst_str(text.encode("utf-16-le")) == text
+    assert pn._decode_pst_str(text.encode("utf-8")) == text
+    assert pn._decode_pst_str(text.encode("cp1254")) == text
+
+
+def test_looks_utf16le_discriminates():
+    assert pn._looks_utf16le("Merhaba dünya".encode("utf-16-le")) is True
+    assert pn._looks_utf16le("şğıışğıı".encode("utf-16-le")) is True
+    assert pn._looks_utf16le("Merhaba dünya".encode("utf-8")) is False
+    assert pn._looks_utf16le(b"odd-length!") is False
+    assert pn._looks_utf16le(b"") is False
+
+
+def test_decode_pst_str_strips_trailing_nul_and_empty():
+    assert pn._decode_pst_str(b"") == ""
+    assert pn._decode_pst_str("Hi".encode("utf-16-le") + b"\x00\x00") == "Hi"
+
+
+# --------------------------------------------------------------------------- #
 # Crypt tables
 # --------------------------------------------------------------------------- #
 def test_crypt_tables_are_bijections() -> None:

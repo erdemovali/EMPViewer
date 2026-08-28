@@ -165,6 +165,46 @@ NID_MESSAGE_STORE = 0x21
 NID_ATTACHMENT_TABLE = 0x671
 NID_RECIPIENT_TABLE = 0x692
 
+#: On the message-store PC: EntryID of the user-visible root ("Top of Personal
+#: Folders" / "Top of Outlook data file"). Its last 4 bytes are the folder NID.
+PID_IPM_SUBTREE_ENTRYID = 0x35E0
+
+
+def _looks_utf16le(raw: bytes) -> bool:
+    """Heuristic: PST text is UTF-16-LE, so the high byte of every code unit
+    (the odd-indexed bytes) is tiny - 0x00 for Latin-1, 0x00-0x02 for the
+    Turkish / Central-European letters. UTF-8 / single-byte text does not have
+    that shape. True if even-length and >=60% of odd bytes are < 0x08."""
+
+    if len(raw) < 4 or len(raw) % 2:
+        return False
+    odd = raw[1::2]
+    low = sum(1 for b in odd if b < 0x08)
+    return low >= max(1, len(odd) * 3 // 5)
+
+
+def _decode_pst_str(raw: bytes, codepage: int | None = None) -> str:
+    """Decode a PST string blob, whatever byte form it turns up in.
+
+    Some stores keep Subject / Sender / Body as PT_BINARY holding raw UTF-16-LE;
+    decoding those as UTF-8 is what turns Turkish (ğ ı ş …) into boxes.
+    """
+
+    if not raw:
+        return ""
+    if _looks_utf16le(raw):
+        return raw.decode("utf-16-le", "replace").rstrip("\x00")
+    encs = []
+    if codepage:
+        encs.append(f"cp{codepage}")
+    encs += ["utf-8", "cp1254", "cp1252", "latin-1"]
+    for enc in encs:
+        try:
+            return raw.decode(enc)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw.decode("utf-8", "replace")
+
 # Property tags we care about
 PID_DISPLAY_NAME = 0x3001
 PID_SUBJECT = 0x0037
@@ -475,9 +515,9 @@ class PC:
         if ptype == 0x0040:  # PT_SYSTIME
             return filetime_to_dt(u64(raw)) if len(raw) >= 8 else None
         if ptype == 0x001F:  # PT_UNICODE
-            return raw.decode("utf-16-le", "replace")
+            return raw.decode("utf-16-le", "replace").rstrip("\x00")
         if ptype == 0x001E:  # PT_STRING8
-            return raw.decode("cp1252", "replace")
+            return _decode_pst_str(raw)
         if ptype in (0x0102, 0x000D):  # PT_BINARY / PT_OBJECT
             return raw
         return raw or None
@@ -485,10 +525,12 @@ class PC:
     def get_str(self, *prop_ids: int) -> str:
         for pid in prop_ids:
             v = self.get(pid)
-            if isinstance(v, str) and v:
-                return v
-            if isinstance(v, bytes) and v:
-                return v.decode("utf-8", "replace")
+            if isinstance(v, str) and v.strip("\x00"):
+                return v.rstrip("\x00")
+            if isinstance(v, (bytes, bytearray)) and v:
+                s = _decode_pst_str(bytes(v))
+                if s.strip():
+                    return s
         return ""
 
 
@@ -576,9 +618,9 @@ class TC:
         hnid = u32(cell) if len(cell) >= 4 else 0
         raw = self._var(hnid)
         if ptype == 0x001F:
-            return raw.decode("utf-16-le", "replace")
+            return raw.decode("utf-16-le", "replace").rstrip("\x00")
         if ptype == 0x001E:
-            return raw.decode("cp1252", "replace")
+            return _decode_pst_str(raw)
         return raw
 
     def _var(self, hnid: int) -> bytes:
@@ -655,7 +697,29 @@ class PstFile:
 
     # -- folders ------------------------------------------------ #
     def root_folder_nid(self) -> int:
-        return NID_ROOT_FOLDER
+        """The user-visible root ("Top of Personal Folders").
+
+        The real NDB root (``NID_ROOT_FOLDER``) also parents the search-folder
+        subtree ("Search Root" / "Finder" and its saved searches), which Outlook
+        never shows. The message-store PC points at the IPM subtree; use that.
+        """
+
+        cached = getattr(self, "_ipm_root_nid", None)
+        if cached is not None:
+            return cached
+        self._ipm_root_nid = NID_ROOT_FOLDER
+        try:
+            store = self._pc(NID_MESSAGE_STORE)
+            eid = store.get(PID_IPM_SUBTREE_ENTRYID)
+            if isinstance(eid, (bytes, bytearray)) and len(eid) >= 4:
+                nid = u32(bytes(eid)[-4:])
+                if nid and nid != NID_ROOT_FOLDER:
+                    # sanity-check it resolves to a folder node
+                    self._node_blocks_and_subs(nid)
+                    self._ipm_root_nid = nid
+        except (PstFormatError, KeyError, ValueError):
+            pass
+        return self._ipm_root_nid
 
     def folder(self, nid: int) -> NativeFolder:
         nid_index = nid >> 5
@@ -682,8 +746,9 @@ class PstFile:
             msg_count = self._tc_from_nid(cont_nid).row_count
         except (PstFormatError, KeyError):
             msg_count = 0
-        return NativeFolder(nid, name or ("Top of Outlook data file" if nid == NID_ROOT_FOLDER else ""),
-                            child_nids, msg_count)
+        if not name and nid in (NID_ROOT_FOLDER, self.root_folder_nid()):
+            name = "Top of Outlook data file"
+        return NativeFolder(nid, name, child_nids, msg_count)
 
     def folder_contents(self, nid: int) -> list[dict]:
         nid_index = nid >> 5
@@ -711,13 +776,17 @@ class PstFile:
             "attachments": [],
         }
         html = pc.get(PID_HTML)
-        if isinstance(html, bytes) and html:
-            for enc in ("utf-8", "cp1252", "latin-1"):
-                try:
-                    out["body_html"] = html.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
+        if isinstance(html, (bytes, bytearray)) and html:
+            html = bytes(html)
+            if _looks_utf16le(html):
+                out["body_html"] = html.decode("utf-16-le", "replace")
+            else:
+                for enc in ("utf-8", "cp1254", "cp1252", "latin-1"):
+                    try:
+                        out["body_html"] = html.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
         if not out["body_html"]:
             rtf = pc.get(PID_RTF_COMPRESSED)
             if isinstance(rtf, bytes) and rtf:
@@ -792,9 +861,9 @@ def _split(value: str) -> list[str]:
 def _row_str(row: dict, pid: int) -> str:
     v = row.get(pid)
     if isinstance(v, str):
-        return v
-    if isinstance(v, bytes):
-        return v.decode("utf-8", "replace")
+        return v.rstrip("\x00")
+    if isinstance(v, (bytes, bytearray)):
+        return _decode_pst_str(bytes(v))
     return ""
 
 

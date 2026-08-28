@@ -138,6 +138,13 @@ class NativePstBackend(PstBackend):
             self._folder_paths.clear()
             return self._walk(root_nid, "", 0)
 
+    #: Internal search-folder roots Outlook never shows (belt-and-braces in case
+    #: rooting at the IPM subtree didn't catch them).
+    _HIDDEN_FOLDERS = {
+        "search root", "finder", "spam search folder 2",
+        "pst conversation lookup", "top of information store",
+    }
+
     def _walk(self, nid: int, parent_path: str, depth: int) -> FolderNode:
         f = self._pst.folder(nid)
         name = f.name or ("Top of Personal Folders" if depth == 0 else f"Folder {nid:#x}")
@@ -147,6 +154,9 @@ class NativePstBackend(PstBackend):
         if depth < 64:
             for child in f.child_nids:
                 try:
+                    child_folder = self._pst.folder(child)
+                    if depth == 0 and (child_folder.name or "").strip().lower() in self._HIDDEN_FOLDERS:
+                        continue
                     node.children.append(self._walk(child, path, depth + 1))
                 except Exception:
                     continue
@@ -165,6 +175,7 @@ class NativePstBackend(PstBackend):
             PID_SENT_REPR_NAME,
             PID_SUBJECT,
             _clean_subject,
+            _decode_pst_str,
         )
 
         with self._lock:
@@ -177,11 +188,11 @@ class NativePstBackend(PstBackend):
                 if not nid:
                     continue
                 subj = row.get(PID_SUBJECT) or ""
-                if isinstance(subj, bytes):
-                    subj = subj.decode("utf-8", "replace")
+                if isinstance(subj, (bytes, bytearray)):
+                    subj = _decode_pst_str(bytes(subj))
                 sender = row.get(PID_SENT_REPR_NAME) or row.get(PID_SENDER_NAME) or ""
-                if isinstance(sender, bytes):
-                    sender = sender.decode("utf-8", "replace")
+                if isinstance(sender, (bytes, bytearray)):
+                    sender = _decode_pst_str(bytes(sender))
                 date = row.get(PID_DELIVERY_TIME) or row.get(PID_CLIENT_SUBMIT_TIME)
                 mflags = row.get(PID_MESSAGE_FLAGS)
                 mflags = mflags if isinstance(mflags, int) else 0
