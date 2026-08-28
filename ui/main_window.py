@@ -347,6 +347,24 @@ class MainWindow(QMainWindow):
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
 
+        msg_menu = mb.addMenu("&Message")
+        msg_menu.addAction("Save Message &As…").triggered.connect(self.viewer.save_as_eml)
+        msg_menu.addAction("Export to &PDF…").triggered.connect(self.viewer.export_pdf)
+        act_print = msg_menu.addAction("&Print…")
+        act_print.setShortcut(QKeySequence.StandardKey.Print)
+        act_print.triggered.connect(self.viewer.print_message)
+        msg_menu.addSeparator()
+        copy_menu = msg_menu.addMenu("&Copy")
+        copy_menu.addAction("Body Text").triggered.connect(self.viewer.copy_body)
+        copy_menu.addAction("Headers").triggered.connect(self.viewer.copy_headers)
+        msg_menu.addSeparator()
+        self._act_plain = msg_menu.addAction("Show Plain &Text")
+        self._act_plain.setCheckable(True)
+        self._act_plain.toggled.connect(self.viewer.set_plain_text_mode)
+        self._act_source = msg_menu.addAction("Show &Headers / Source")
+        self._act_source.setCheckable(True)
+        self._act_source.toggled.connect(self.viewer.set_source_mode)
+
         view_menu = mb.addMenu("&View")
         theme_menu = view_menu.addMenu("&Theme")
         group = QActionGroup(self)
@@ -486,6 +504,7 @@ class MainWindow(QMainWindow):
             self._active_backend = None
             self._show_message_list(False)
             self.viewer.set_message(data["message"])
+            self._reset_view_toggles()
             self._update_title(data["message"].display_name)
         elif kind == "pstfolder":
             self._active_backend = data["doc"].backend
@@ -544,6 +563,7 @@ class MainWindow(QMainWindow):
     def _on_message_loaded(self, message: EmailMessage) -> None:
         self._clear_busy()
         self.viewer.set_message(message)
+        self._reset_view_toggles()
         self._update_title(message.display_name)
 
     # ------------------------------------------------------------------ #
@@ -687,6 +707,14 @@ class MainWindow(QMainWindow):
     # -- title / navigation ---------------------------------------- #
     def _update_title(self, subject: str | None) -> None:
         self.setWindowTitle(f"{subject} - EMPViewer" if subject else "EMPViewer")
+
+    def _reset_view_toggles(self) -> None:
+        """Uncheck the plain-text / source toggles without re-rendering
+        (the viewer already resets its own state in ``set_message``)."""
+        for act in (self._act_plain, self._act_source):
+            act.blockSignals(True)
+            act.setChecked(False)
+            act.blockSignals(False)
 
     def _step_message(self, delta: int) -> None:
         if not self._list_panel.isVisible():

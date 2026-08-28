@@ -14,7 +14,8 @@ import re
 from typing import Iterable
 
 from PySide6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QTextCursor, QTextDocument
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextCursor, QTextDocument
+from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -34,8 +35,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from parsers.export import to_eml_bytes
 from parsers.models import Attachment, EmailMessage
-from utils.helpers import human_size, open_with_os, write_temp_attachment
+from utils.helpers import human_size, open_with_os, safe_filename, write_temp_attachment
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +225,8 @@ class ViewerWidget(QWidget):
         super().__init__(parent)
         self._message: EmailMessage | None = None
         self._had_remote = False
+        self._source_mode = False
+        self._force_text = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -350,6 +354,8 @@ class ViewerWidget(QWidget):
     def set_message(self, message: EmailMessage) -> None:
         self._message = message
         self._had_remote = False
+        self._source_mode = False
+        self._force_text = False
         self.browser.allow_remote = False
         self.remote_banner.hide()
         self.close_find()
@@ -378,17 +384,26 @@ class ViewerWidget(QWidget):
         return "<br>".join(rows)
 
     def _render_body(self, m: EmailMessage) -> None:
-        if m.body_html:
+        if self._source_mode:
+            self.browser.setHtml(
+                "<pre style='white-space:pre-wrap;word-wrap:break-word;"
+                "font-family:monospace;font-size:12px;padding:12px'>"
+                + _esc(_headers_dump(m)) + "</pre>"
+            )
+            return
+
+        if m.body_html and not self._force_text:
             # Bake embedded images straight into the HTML as data: URIs. This is
             # far more reliable across QTextBrowser versions than resolving
             # "cid:" through loadResource(), and it also covers images referenced
             # from CSS (background / url()).
             html = _inline_cid_images(m.body_html, m.inline_by_cid)
             self.browser.setHtml(html)
-        elif m.body_text:
+        elif m.body_text or (self._force_text and m.body_html):
+            text = m.body_text or _html_to_text(m.body_html or "")
             self.browser.setHtml(
                 "<pre style='white-space:pre-wrap;word-wrap:break-word;"
-                "font-family:sans-serif;padding:12px'>" + _esc(m.body_text) + "</pre>"
+                "font-family:sans-serif;padding:12px'>" + _esc(text) + "</pre>"
             )
         else:
             self.browser.setHtml(
@@ -481,6 +496,70 @@ class ViewerWidget(QWidget):
             self._attach_layout.addWidget(AttachmentChip(att, self._attach_host))
         self.attach_area.show()
 
+    # -- view toggles ----------------------------------------- #
+    def set_source_mode(self, on: bool) -> None:
+        self._source_mode = bool(on)
+        if self._message is not None:
+            self._render_body(self._message)
+
+    def set_plain_text_mode(self, on: bool) -> None:
+        self._force_text = bool(on)
+        if self._message is not None:
+            self._render_body(self._message)
+
+    def has_message(self) -> bool:
+        return self._message is not None
+
+    # -- export / print / copy ------------------------------- #
+    def _default_name(self, ext: str) -> str:
+        base = safe_filename(self._message.display_name if self._message else "message")
+        return f"{base or 'message'}{ext}"
+
+    def save_as_eml(self) -> None:
+        if self._message is None:
+            QMessageBox.information(self, "Save Message", "No message is open.")
+            return
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Save message as", self._default_name(".eml"), "Mail message (*.eml)"
+        )
+        if not target:
+            return
+        try:
+            with open(target, "wb") as fh:
+                fh.write(to_eml_bytes(self._message))
+        except OSError as exc:
+            QMessageBox.warning(self, "Save Message", f"Could not save:\n{exc}")
+
+    def export_pdf(self) -> None:
+        if self._message is None:
+            QMessageBox.information(self, "Export to PDF", "No message is open.")
+            return
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Export to PDF", self._default_name(".pdf"), "PDF document (*.pdf)"
+        )
+        if not target:
+            return
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(target)
+        self.browser.document().print_(printer)
+
+    def print_message(self) -> None:
+        if self._message is None:
+            QMessageBox.information(self, "Print", "No message is open.")
+            return
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        if QPrintDialog(printer, self).exec():
+            self.browser.document().print_(printer)
+
+    def copy_body(self) -> None:
+        if self._message is not None:
+            QGuiApplication.clipboard().setText(self.browser.document().toPlainText())
+
+    def copy_headers(self) -> None:
+        if self._message is not None:
+            QGuiApplication.clipboard().setText(_headers_dump(self._message))
+
     # -- misc ------------------------------------------------- #
     def save_all_attachments(self) -> None:
         if not self._message or not self._message.visible_attachments:
@@ -490,8 +569,6 @@ class ViewerWidget(QWidget):
         if not folder:
             return
         from pathlib import Path
-
-        from utils.helpers import safe_filename
 
         saved = 0
         for att in self._message.visible_attachments:
@@ -505,6 +582,30 @@ class ViewerWidget(QWidget):
 
 def _esc(text: str) -> str:
     return _html.escape(text or "")
+
+
+def _headers_dump(m: EmailMessage) -> str:
+    lines: list[str] = []
+
+    def add(label: str, value: str) -> None:
+        if value:
+            lines.append(f"{label}: {value}")
+
+    add("From", m.sender)
+    add("To", ", ".join(m.to))
+    add("Cc", ", ".join(m.cc))
+    add("Date", m.date.strftime("%Y-%m-%d %H:%M") if m.date else "")
+    add("Subject", m.subject)
+    add("Folder", m.folder_path or "")
+    for key, value in (m.headers or {}).items():
+        add(str(key), str(value))
+    return "\n".join(lines) or "(no headers)"
+
+
+def _html_to_text(html: str) -> str:
+    doc = QTextDocument()
+    doc.setHtml(html)
+    return doc.toPlainText()
 
 
 # Matches every "cid:<token>" occurrence - in <img src=...>, background=..., or
