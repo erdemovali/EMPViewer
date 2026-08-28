@@ -14,12 +14,12 @@ name: Build macOS app
 # with the hardened runtime + packaging/macos/entitlements.plist, then notarizes
 # and staples both the .app and the .dmg).
 #
-# Without the secrets you still get a working unsigned build (users clear
-# quarantine once with `xattr -dr com.apple.quarantine` - see docs/DAGITIM.md 5.2).
+# Without the secrets you still get a working unsigned build; users then clear
+# quarantine once with `xattr -dr com.apple.quarantine /Applications/EMPViewer.app`.
 #
 #   MACOS_CERT_P12         base64 of your "Developer ID Application" .p12
 #   MACOS_CERT_PASSWORD    password for that .p12
-#   MACOS_SIGN_IDENTITY    e.g.  Developer ID Application: Ad Soyad (TEAMID)
+#   MACOS_SIGN_IDENTITY    e.g.  Developer ID Application: Your Name (TEAMID)
 #   AC_APPLE_ID            your Apple ID e-mail
 #   AC_PASSWORD            an app-specific password (appleid.apple.com)
 #   AC_TEAM_ID             your 10-char Team ID

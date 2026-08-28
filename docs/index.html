@@ -107,7 +107,6 @@
     border-radius: var(--radius); padding: 20px;
   }
   .card p { margin: 0; color: var(--muted); font-size: .92rem; }
-  .card .ico { font-size: 1.3rem; margin-bottom: 10px; display: block; }
 
   .formats { display: grid; gap: 12px; }
   .fmt {
@@ -191,34 +190,28 @@
     <h2>Features</h2>
     <div class="grid">
       <div class="card">
-        <span class="ico">📬</span>
-        <h3>Four formats, one app</h3>
-        <p><code>.eml</code> via the standard library, <code>.msg</code> via <code>extract_msg</code>, and <code>.pst</code>/<code>.ost</code> through a pluggable backend — auto-detected at runtime.</p>
+        <h3>Four formats</h3>
+        <p><code>.eml</code> via the Python standard library, <code>.msg</code> via <code>extract_msg</code>, and <code>.pst</code>/<code>.ost</code> through a backend chosen at runtime.</p>
       </div>
       <div class="card">
-        <span class="ico">🧩</span>
         <h3>Built-in PST reader</h3>
-        <p>A pure-Python MS-PST reader with <em>no dependencies</em> is the default. <code>libpff</code> or a <code>readpst</code> binary are used in preference when present, but never required.</p>
+        <p>A pure-Python PST/OST reader with no external dependencies is the default. <code>libpff</code> or a <code>readpst</code> binary are used when available, but are not required.</p>
       </div>
       <div class="card">
-        <span class="ico">🛡️</span>
-        <h3>Privacy by default</h3>
-        <p>Remote images and tracking pixels are blocked until you click <em>Load remote content</em>. Inline <code>cid:</code> images always render offline.</p>
+        <h3>Remote content blocked</h3>
+        <p>Remote images and tracking pixels are blocked until you choose to load them. Inline <code>cid:</code> images render offline.</p>
       </div>
       <div class="card">
-        <span class="ico">⚡</span>
-        <h3>Never blocks</h3>
-        <p>Every parse and every PST folder/message load runs on a worker thread — the UI stays responsive even on large <code>.pst</code> files.</p>
+        <h3>Stays responsive</h3>
+        <p>Parsing and PST folder/message loading run on a worker thread, so large files do not freeze the window.</p>
       </div>
       <div class="card">
-        <span class="ico">📎</span>
         <h3>Attachments</h3>
-        <p>Click to open with the OS default app (a copy lands in a per-session temp dir wiped on exit); right-click for <em>Save As…</em>.</p>
+        <p>Open with the system default application, or save individually or all at once.</p>
       </div>
       <div class="card">
-        <span class="ico">🖱️</span>
-        <h3>Drag &amp; drop + file association</h3>
-        <p>Drop any supported file onto the window. Register as the double-click handler on Windows and macOS.</p>
+        <h3>Drag and drop, file association</h3>
+        <p>Drop a supported file onto the window, or register EMPViewer as the double-click handler on Windows and macOS.</p>
       </div>
     </div>
   </section>
@@ -273,7 +266,6 @@
         </ul>
       </div>
     </div>
-    <p class="note">Full distribution &amp; default-handler guide (portable vs installer, Windows &amp; macOS, enterprise / GPO): <a href="https://github.com/erdemovali/EMPViewer/blob/main/docs/DAGITIM.md">docs/DAGITIM.md</a> (Turkish).</p>
   </section>
 
   <section class="block" id="build">
@@ -300,18 +292,17 @@ python build.py --installer       <span class="c"># Windows: EMPViewer-Setup.exe
       Windows builds; macOS builds are signed with an Apple Developer ID and notarized.</p>
     <div class="panel">
       <ul>
-        <li><strong>Committers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>)</li>
-        <li><strong>Reviewers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>) — every change not authored by a committer (e.g. a pull request) is reviewed before merge.</li>
-        <li><strong>Approvers:</strong> Erdem Ovali (<a href="https://github.com/erdemovali">@erdemovali</a>) — each signing request is approved manually before a release is signed.</li>
+        <li>Committers, reviewers and approvers: <a href="https://github.com/erdemovali">@erdemovali</a></li>
+        <li>Every change that does not come from a committer is reviewed before merge.</li>
+        <li>Every signing request is approved manually before a release is signed.</li>
       </ul>
     </div>
     <p>Binaries are built only from the source in the
       <a href="https://github.com/erdemovali/EMPViewer">GitHub repository</a>, by the GitHub Actions
       workflows in <code>.github/workflows/</code>.</p>
-    <p class="note"><strong>Privacy:</strong> this program will not transfer any information to other
-      networked systems unless specifically requested by the user or the person installing or
-      operating it. Remote content in messages (images, tracking pixels) is blocked until you
-      explicitly click <em>Load remote content</em>. See also
+    <p class="note">This program does not transfer any information to other networked systems unless
+      requested by the user or the person installing or operating it. Remote content in messages is
+      blocked until it is loaded explicitly. See
       <a href="https://github.com/erdemovali/EMPViewer/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </section>
 
@@ -322,7 +313,6 @@ python build.py --installer       <span class="c"># Windows: EMPViewer-Setup.exe
     <span>MIT licensed</span>
     <a href="https://github.com/erdemovali/EMPViewer">GitHub</a>
     <a href="https://github.com/erdemovali/EMPViewer/blob/main/README.md">README</a>
-    <a href="https://github.com/erdemovali/EMPViewer/blob/main/docs/DAGITIM.md">Distribution guide (TR)</a>
     <a href="#code-signing">Code signing policy</a>
     <a href="https://github.com/erdemovali/EMPViewer/releases/latest">Releases</a>
   </div>
