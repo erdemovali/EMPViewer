@@ -197,8 +197,9 @@ def pyinstaller_args(mode: str) -> list[str]:
         "--hidden-import", "compressed_rtf",
         "--hidden-import", "striprtf",
         "--hidden-import", "striprtf.striprtf",
-        # PDF export / print (QtPrintSupport is not always picked up automatically).
+        # PDF export / print + single-instance IPC (not always auto-detected).
         "--hidden-import", "PySide6.QtPrintSupport",
+        "--hidden-import", "PySide6.QtNetwork",
     ]
 
     if sys.platform.startswith("win"):

@@ -59,6 +59,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QTableView,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -320,9 +321,15 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)  # indeterminate
         self.progress.setMaximumWidth(160)
         self.progress.hide()
+        self._cancel_btn = QToolButton()
+        self._cancel_btn.setText(self.tr("Cancel"))
+        self._cancel_btn.setToolTip(self.tr("Stop the current operation"))
+        self._cancel_btn.hide()
+        self._cancel_btn.clicked.connect(self._cancel_active)
         self._status_label = QLabel(self.tr("Ready"))
         self.statusBar().addWidget(self._status_label, 1)
         self.statusBar().addPermanentWidget(self.progress)
+        self.statusBar().addPermanentWidget(self._cancel_btn)
 
     def _build_menus(self) -> None:
         mb = self.menuBar()
@@ -648,10 +655,22 @@ class MainWindow(QMainWindow):
     def _set_busy(self, text: str) -> None:
         self._status_label.setText(text)
         self.progress.show()
+        self._cancel_btn.show()
 
     def _clear_busy(self) -> None:
         self.progress.hide()
+        self._cancel_btn.hide()
         self._status_label.setText(self.tr("Ready"))
+
+    def _cancel_active(self) -> None:
+        for r in list(self._runnables):
+            try:
+                r.cancel()
+            except Exception:
+                pass
+        self._runnables.clear()
+        self._clear_busy()
+        self._status_label.setText(self.tr("Cancelled"))
 
     def _track(self, runnable: Any) -> None:
         self._runnables.append(runnable)

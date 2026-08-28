@@ -21,6 +21,7 @@ Thumbs.db
 
 # local scratch
 job-logs.txt
+*.pdf
 
 # signing material - never commit
 *.key

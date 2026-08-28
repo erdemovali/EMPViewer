@@ -14,6 +14,7 @@ mail extensions with this executable.
 
 from __future__ import annotations
 
+import getpass
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from PySide6.QtCore import (
     QTranslator,
     Signal,
 )
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
 # Make ``python main.py`` work regardless of the current directory.
@@ -72,6 +74,55 @@ def _collect_cli_paths(argv: list[str]) -> list[str]:
     return [a for a in argv[1:] if not a.startswith("-") and is_supported_file(a)]
 
 
+def _ipc_name() -> str:
+    try:
+        user = getpass.getuser()
+    except Exception:  # noqa: BLE001
+        user = "user"
+    return f"EMPViewer-{user}"
+
+
+def _forward_to_running_instance(argv: list[str]) -> bool:
+    """If another instance is listening, hand it our file paths and return True."""
+
+    sock = QLocalSocket()
+    sock.connectToServer(_ipc_name())
+    if not sock.waitForConnected(250):
+        sock.abort()
+        return False
+    payload = "\n".join(_collect_cli_paths(argv)).encode("utf-8")
+    sock.write(payload)
+    sock.flush()
+    sock.waitForBytesWritten(1000)
+    sock.disconnectFromServer()
+    return True
+
+
+def _serve_single_instance(window: MainWindow) -> QLocalServer | None:
+    def _on_connection(server: QLocalServer) -> None:
+        conn = server.nextPendingConnection()
+        if conn is None:
+            return
+        data = b""
+        if conn.waitForReadyRead(1000):
+            data = bytes(conn.readAll().data())
+        conn.disconnectFromServer()
+        for line in filter(None, data.decode("utf-8", "replace").splitlines()):
+            window.load_external_path(line)
+        if window.isMinimized():
+            window.showNormal()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    QLocalServer.removeServer(_ipc_name())  # clear a stale socket left by a crash
+    server = QLocalServer()
+    if not server.listen(_ipc_name()):
+        return None
+    server.newConnection.connect(lambda: _on_connection(server))
+    return server
+
+
 def _install_translators(app: QApplication) -> None:
     """Load the UI translation for the configured / system language.
 
@@ -115,11 +166,16 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationDomain("empviewer.local")
     app.setWindowIcon(make_app_icon())
 
+    # Single instance: a second launch forwards its files to the running window.
+    if _forward_to_running_instance(argv):
+        return 0
+
     _install_translators(app)
     theme.apply(app, theme.load_mode())
 
     window = MainWindow()
     app.fileOpenRequested.connect(window.load_external_path)
+    app._local_server = _serve_single_instance(window)  # keep a reference alive
     window.show()
 
     # Files passed on the command line (Windows / Linux double-click, CLI use).

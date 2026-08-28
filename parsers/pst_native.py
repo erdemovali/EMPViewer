@@ -521,6 +521,19 @@ class TC:
             return []
         return self._ndb.read_data_blocks(ref[0])
 
+    @property
+    def row_count(self) -> int:
+        """Number of rows without decoding any of them.
+
+        Matches what :meth:`__iter__` yields (see :func:`_iter_rows`): each block
+        holds ``floor(len(block) / row_size)`` whole rows.
+        """
+
+        rs = self._row_size
+        if rs <= 0:
+            return 0
+        return sum(len(seg) // rs for seg in self._row_blocks)
+
     def __iter__(self) -> Iterator[dict]:
         rs = self._row_size
         if rs <= 0:
@@ -658,8 +671,9 @@ class PstFile:
             pass
         cont_nid = (nid_index << 5) | NID_TYPE_CONTENTS_TABLE
         try:
-            tc = self._tc_from_nid(cont_nid)
-            msg_count = sum(1 for _ in tc)
+            # row_count reads block sizes only - no per-row cell decoding, which
+            # matters when opening a PST with many large folders.
+            msg_count = self._tc_from_nid(cont_nid).row_count
         except (PstFormatError, KeyError):
             msg_count = 0
         return NativeFolder(nid, name or ("Top of Outlook data file" if nid == NID_ROOT_FOLDER else ""),

@@ -168,3 +168,17 @@ def test_bth_records_flat() -> None:
     hn = pn._HN([blk])
     got = list(pn._bth_records(hn, (2 << 5), cb_key=2, cb_ent=2, levels=0))
     assert got == [b"\x01\x00AA", b"\x02\x00BB", b"\x03\x00CC"]
+
+
+def test_tc_row_count_matches_block_math() -> None:
+    # row_count must equal what _iter_rows yields: floor(len(block)/row_size) per block.
+    tc = pn.TC.__new__(pn.TC)
+    tc._row_size = 10
+    tc._row_blocks = [b"x" * 25, b"y" * 10, b"", b"z" * 9]
+    assert tc.row_count == 3  # 2 + 1 + 0 + 0
+    assert sum(1 for _ in pn._iter_rows(tc._row_blocks, tc._row_size)) == tc.row_count
+
+    empty = pn.TC.__new__(pn.TC)
+    empty._row_size = 0
+    empty._row_blocks = []
+    assert empty.row_count == 0
