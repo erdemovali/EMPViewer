@@ -13,8 +13,12 @@ dist/
 .coverage
 htmlcov/
 
-tests/data/
+# Ignore ad-hoc test data, but keep small curated fixtures (large user PST/OST
+# dumps stay out). Note the /* - a bare "tests/data/" can't be un-ignored.
+tests/data/*
 !tests/data/.gitkeep
+!tests/data/README.md
+!tests/data/*.tnef
 
 .DS_Store
 Thumbs.db

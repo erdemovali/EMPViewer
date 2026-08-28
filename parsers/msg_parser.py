@@ -188,6 +188,9 @@ def _build_message(msg: Any, source_path: str | None, depth: int = 0) -> EmailMe
             headers = {}
 
     atts = _collect_attachments(msg, depth)
+    from ._tnef import merge as _merge_tnef
+
+    atts, html, text = _merge_tnef(atts, html, text)
     msg_class = str(getattr(msg, "messageClass", "") or "").lower()
     att_names = " ".join(a.filename.lower() for a in atts)
     is_signed = "smime" in msg_class or "signed" in msg_class or ".p7s" in att_names

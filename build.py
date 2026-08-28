@@ -224,6 +224,7 @@ def pyinstaller_args(mode: str) -> list[str]:
         "--hidden-import", "compressed_rtf",
         "--hidden-import", "striprtf",
         "--hidden-import", "striprtf.striprtf",
+        "--hidden-import", "tnefparse",
         # PDF export / print + single-instance IPC (not always auto-detected).
         "--hidden-import", "PySide6.QtPrintSupport",
         "--hidden-import", "PySide6.QtNetwork",

@@ -225,6 +225,9 @@ def parse_eml_bytes(raw: bytes, *, source_path: str | None = None) -> EmailMessa
 
     try:
         html, text, attachments = _partition(msg)
+        from ._tnef import merge as _merge_tnef
+
+        attachments, html, text = _merge_tnef(attachments, html, text)
         # Keep *every* header (last-wins for repeats; the verbatim truth for
         # duplicated Received lines etc. lives in ``raw_source``).
         headers = {key: _decode(val) for key, val in msg.items()}
