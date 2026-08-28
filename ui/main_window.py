@@ -194,7 +194,8 @@ class EmailListModel(QAbstractTableModel):
 
 
 def _fmt_date(dt: datetime | None) -> str:
-    return format_datetime(dt, with_tz=False)
+    style = str(QSettings().value("appearance/dateFormat", "local"))
+    return format_datetime(dt, with_tz=False, style=style)
 
 
 class MailFilterProxy(QSortFilterProxyModel):
@@ -263,7 +264,7 @@ class CloseButtonDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setBrush(color if False else Qt.BrushStyle.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(color, 1.6))
         m = 4
         painter.drawLine(r.left() + m, r.top() + m, r.right() - m, r.bottom() - m)
@@ -345,6 +346,9 @@ class MainWindow(QMainWindow):
         self.filter_edit.setPlaceholderText(self.tr("Filter by sender or subject…"))
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self.proxy.set_needle)
+        _esc_filter = QShortcut(QKeySequence("Escape"), self.filter_edit)
+        _esc_filter.setContext(Qt.ShortcutContext.WidgetShortcut)
+        _esc_filter.activated.connect(self.filter_edit.clear)
 
         # The message list only makes sense for a PST/OST folder; for a single
         # .eml/.msg it is dead space, so it starts hidden and is shown on demand.
@@ -440,15 +444,30 @@ class MainWindow(QMainWindow):
         copy_menu = msg_menu.addMenu(self.tr("&Copy"))
         copy_menu.addAction(self.tr("Body Text")).triggered.connect(self.viewer.copy_body)
         copy_menu.addAction(self.tr("Headers")).triggered.connect(self.viewer.copy_headers)
+        act_copy_raw = copy_menu.addAction(self.tr("Raw Source"))
+        act_copy_raw.setShortcut(QKeySequence("Ctrl+U"))
+        act_copy_raw.triggered.connect(self.viewer.copy_raw_source)
         msg_menu.addSeparator()
         self._act_plain = msg_menu.addAction(self.tr("Show Plain &Text"))
         self._act_plain.setCheckable(True)
+        self._act_plain.setShortcut(QKeySequence("Ctrl+Shift+T"))
         self._act_plain.toggled.connect(self.viewer.set_plain_text_mode)
         self._act_source = msg_menu.addAction(self.tr("Show &Headers / Source"))
         self._act_source.setCheckable(True)
+        self._act_source.setShortcut(QKeySequence("Ctrl+Shift+U"))
         self._act_source.toggled.connect(self.viewer.set_source_mode)
 
         view_menu = mb.addMenu(self.tr("&View"))
+        act_zin = view_menu.addAction(self.tr("Zoom &In"))
+        act_zin.setShortcuts([QKeySequence("Ctrl++"), QKeySequence("Ctrl+=")])
+        act_zin.triggered.connect(lambda: self.viewer.zoom_by(1))
+        act_zout = view_menu.addAction(self.tr("Zoom &Out"))
+        act_zout.setShortcut(QKeySequence("Ctrl+-"))
+        act_zout.triggered.connect(lambda: self.viewer.zoom_by(-1))
+        act_zreset = view_menu.addAction(self.tr("&Reset Zoom"))
+        act_zreset.setShortcut(QKeySequence("Ctrl+0"))
+        act_zreset.triggered.connect(self.viewer.zoom_reset)
+        view_menu.addSeparator()
         theme_menu = view_menu.addMenu(self.tr("&Theme"))
         group = QActionGroup(self)
         group.setExclusive(True)
@@ -783,10 +802,34 @@ class MainWindow(QMainWindow):
         item = self.tree.itemAt(pos)
         if item is None:
             return
+        data = item.data(0, _ITEM_ROLE) or {}
         menu = QMenu(self)
+        act_reveal = None
+        src = data.get("path")
+        if data.get("kind") in ("file", "pstroot") and src:
+            act_reveal = menu.addAction(self.tr("Open Containing Folder"))
         act_close = menu.addAction(self.tr("Close"))
-        if menu.exec(self.tree.viewport().mapToGlobal(pos)) == act_close:
+        chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+        if chosen == act_close:
             self._close_item(item)
+        elif act_reveal is not None and chosen == act_reveal:
+            self._reveal_in_file_manager(src)
+
+    @staticmethod
+    def _reveal_in_file_manager(path: str) -> None:
+        import subprocess
+        import sys as _sys
+
+        p = Path(path)
+        try:
+            if _sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "/select,", str(p)])
+            elif _sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(p)])
+            else:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
+        except OSError:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
         if obj is self.tree.viewport():
@@ -946,6 +989,18 @@ class MainWindow(QMainWindow):
         from ui.settings_dialog import SettingsDialog
 
         SettingsDialog(self).exec()
+
+    def apply_viewer_prefs(self) -> None:
+        """Called by the Preferences dialog on OK: push viewer / date-format
+        changes without needing a restart."""
+        self.viewer.apply_prefs()
+        # The date-format change affects every row already in the list.
+        top_left = self.list_model.index(0, 0)
+        bottom_right = self.list_model.index(
+            max(0, self.list_model.rowCount() - 1), _COLUMN_COUNT - 1
+        )
+        if top_left.isValid():
+            self.list_model.dataChanged.emit(top_left, bottom_right)
 
     def _check_updates(self, *, manual: bool) -> None:
         from utils.updates import UpdateChecker

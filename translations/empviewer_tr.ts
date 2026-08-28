@@ -2,9 +2,21 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="tr_TR">
 <context>
+    <name></name>
+    <message>
+        <source>signed</source>
+        <translation>imzalı</translation>
+    </message>
+    <message>
+        <source>encrypted</source>
+        <translation>şifreli</translation>
+    </message>
+</context>
+<context>
     <name>AttachmentChip</name>
     <message>
         <source>Attachment</source>
+        <extracomment>Normalised e-mail address of the current message&apos;s sender, and the set of senders the user has chosen to always load remote content from.</extracomment>
         <translation>Ek</translation>
     </message>
     <message>
@@ -157,6 +169,10 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Başlıklar</translation>
     </message>
     <message>
+        <source>Raw Source</source>
+        <translation>Ham Kaynak</translation>
+    </message>
+    <message>
         <source>Show Plain &amp;Text</source>
         <translation>Düz &amp;Metni Göster</translation>
     </message>
@@ -167,6 +183,18 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>&amp;View</source>
         <translation>&amp;Görünüm</translation>
+    </message>
+    <message>
+        <source>Zoom &amp;In</source>
+        <translation>&amp;Yakınlaştır</translation>
+    </message>
+    <message>
+        <source>Zoom &amp;Out</source>
+        <translation>&amp;Uzaklaştır</translation>
+    </message>
+    <message>
+        <source>&amp;Reset Zoom</source>
+        <translation>Yakınlaştırmayı &amp;Sıfırla</translation>
     </message>
     <message>
         <source>&amp;Theme</source>
@@ -257,6 +285,10 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>İleti</translation>
     </message>
     <message>
+        <source>Open Containing Folder</source>
+        <translation>Bulunduğu Klasörü Aç</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>Kapat</translation>
     </message>
@@ -325,6 +357,7 @@ Bir kopya şuraya kaydedildi:</translation>
     <name>SettingsDialog</name>
     <message>
         <source>Preferences</source>
+        <extracomment>appearance/dateFormat values -&gt; label</extracomment>
         <translation>Tercihler</translation>
     </message>
     <message>
@@ -342,6 +375,30 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>Language changes take effect after restart.</source>
         <translation>Dil değişikliği yeniden başlatınca etkinleşir.</translation>
+    </message>
+    <message>
+        <source>Local (2024-03-05 10:30)</source>
+        <translation>Yerel (2024-03-05 10:30)</translation>
+    </message>
+    <message>
+        <source>ISO 8601 (2024-03-05T10:30)</source>
+        <translation>ISO 8601 (2024-03-05T10:30)</translation>
+    </message>
+    <message>
+        <source>RFC (Tue, 05 Mar 2024 10:30)</source>
+        <translation>RFC (Sal, 05 Mar 2024 10:30)</translation>
+    </message>
+    <message>
+        <source>Date format:</source>
+        <translation>Tarih biçimi:</translation>
+    </message>
+    <message>
+        <source>Message text size:</source>
+        <translation>Mesaj yazı boyutu:</translation>
+    </message>
+    <message>
+        <source>Prefer plain text when a message has both</source>
+        <translation>İkisi de varsa düz metni tercih et</translation>
     </message>
     <message>
         <source>Load remote content in messages automatically</source>
@@ -413,6 +470,14 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>PDF document (*.pdf)</source>
         <translation>PDF belgesi (*.pdf)</translation>
+    </message>
+    <message>
+        <source>Always allow this sender</source>
+        <translation>Bu göndericiye her zaman izin ver</translation>
+    </message>
+    <message>
+        <source>(This message has no readable body.)</source>
+        <translation>(Bu mesajın okunabilir bir gövdesi yok.)</translation>
     </message>
     <message>
         <source>Web page (*.html)</source>

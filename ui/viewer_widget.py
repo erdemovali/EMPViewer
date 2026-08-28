@@ -135,6 +135,8 @@ class RemoteBlockingBrowser(QTextBrowser):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.allow_remote = False
+        self.allowed_senders = set()
+        self.sender_key = ""
         self._inline: dict[str, Attachment] = {}
         self.setOpenExternalLinks(False)
         self.setOpenLinks(False)
@@ -147,6 +149,16 @@ class RemoteBlockingBrowser(QTextBrowser):
         # Never navigate the browser itself; open real links in the OS browser.
         if url.scheme() in ("http", "https", "mailto"):
             QDesktopServices.openUrl(url)
+
+    #: Normalised e-mail address of the current message's sender, and the set of
+    #: senders the user has chosen to always load remote content from.
+    sender_key: str = ""
+    allowed_senders: set[str]
+
+    def _remote_ok(self) -> bool:
+        return self.allow_remote or (
+            bool(self.sender_key) and self.sender_key in getattr(self, "allowed_senders", set())
+        )
 
     def loadResource(self, resource_type: int, url: QUrl):  # noqa: N802
         scheme = url.scheme().lower()
@@ -166,7 +178,7 @@ class RemoteBlockingBrowser(QTextBrowser):
             return QByteArray()
 
         if scheme in ("http", "https"):
-            if self.allow_remote:
+            if self._remote_ok():
                 return super().loadResource(resource_type, url)
             self.remoteContentBlocked.emit()
             return QByteArray()
@@ -261,6 +273,9 @@ class ViewerWidget(QWidget):
         self._had_remote = False
         self._source_mode = False
         self._force_text = False
+        self._zoom = 0
+        self._prefer_text = False
+        self._load_prefs()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -314,7 +329,10 @@ class ViewerWidget(QWidget):
         msg.setWordWrap(True)
         btn = QPushButton(self.tr("Load remote content"))
         btn.clicked.connect(self._load_remote)
+        self._remote_trust_btn = QPushButton(self.tr("Always allow this sender"))
+        self._remote_trust_btn.clicked.connect(self._trust_sender)
         lay.addWidget(msg, 1)
+        lay.addWidget(self._remote_trust_btn)
         lay.addWidget(btn)
         self.remote_banner.hide()
         return self.remote_banner
@@ -386,7 +404,7 @@ class ViewerWidget(QWidget):
             "Use File > Open, drag a file onto the window, or set EMPViewer "
             "as the default handler for these file types."
         )
-        self.browser.setHtml(
+        self._set_body_html(
             "<div style='color:#5f6368;padding:40px 28px;font-family:sans-serif;line-height:1.6'>"
             f"<p style='font-size:15px'>{_esc(line1)}</p>"
             f"<p>{_esc(line2)}</p>"
@@ -396,6 +414,23 @@ class ViewerWidget(QWidget):
         self.close_find()
         self._clear_attachments()
 
+    def _load_prefs(self) -> None:
+        s = QSettings()
+        self._zoom = int(s.value("viewer/fontDelta", 0) or 0)
+        self._prefer_text = bool(s.value("viewer/preferPlainText", False, type=bool))
+
+    def apply_prefs(self) -> None:
+        """Re-read Preferences and re-render (called from the settings dialog)."""
+        self._load_prefs()
+        if self._message is not None:
+            self.lbl_meta.setText(self._meta_html(self._message))
+            self._render_body(self._message)
+
+    def _set_body_html(self, html: str) -> None:
+        self.browser.setHtml(html)
+        if self._zoom:
+            self.browser.zoomIn(self._zoom)
+
     def set_message(self, message: EmailMessage) -> None:
         self._message = message
         self._had_remote = False
@@ -404,6 +439,9 @@ class ViewerWidget(QWidget):
         self.browser.allow_remote = bool(
             QSettings().value("viewer/autoLoadRemote", False, type=bool)
         )
+        self.browser.sender_key = _sender_key(message.sender)
+        raw = QSettings().value("viewer/remoteAllowSenders", []) or []
+        self.browser.allowed_senders = {str(x).lower() for x in raw}
         self.remote_banner.hide()
         self.close_find()
 
@@ -417,51 +455,67 @@ class ViewerWidget(QWidget):
     # -- rendering -------------------------------------------------- #
     @staticmethod
     def _meta_html(m: EmailMessage) -> str:
+        tr = lambda s: QCoreApplication.translate("ViewerWidget", s)  # noqa: E731
+        style = str(QSettings().value("appearance/dateFormat", "local"))
         rows: list[str] = []
         if m.sender:
-            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'From')}:</b> {_esc(m.sender)}")
+            rows.append(f"<b>{tr('From')}:</b> {_esc(m.sender)}")
         if m.to:
-            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'To')}:</b> {_esc(', '.join(m.to))}")
+            rows.append(f"<b>{tr('To')}:</b> {_esc(', '.join(m.to))}")
         if m.cc:
-            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Cc')}:</b> {_esc(', '.join(m.cc))}")
+            rows.append(f"<b>{tr('Cc')}:</b> {_esc(', '.join(m.cc))}")
+        if m.bcc:
+            rows.append(f"<b>{tr('Bcc')}:</b> {_esc(', '.join(m.bcc))}")
         if m.date:
-            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Date')}:</b> {_esc(format_datetime(m.date))}")
+            rows.append(f"<b>{tr('Date')}:</b> {_esc(format_datetime(m.date, style=style))}")
         if m.folder_path:
-            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Folder')}:</b> {_esc(m.folder_path)}")
+            rows.append(f"<b>{tr('Folder')}:</b> {_esc(m.folder_path)}")
+        badges = []
+        if m.is_signed:
+            badges.append(tr("signed"))
+        if m.is_encrypted:
+            badges.append(tr("encrypted"))
+        if badges:
+            rows.append(f"<b>{tr('Security')}:</b> \U0001F512 {_esc(', '.join(badges))}")
         return "<br>".join(rows)
 
     _PRE = "white-space:pre-wrap;word-wrap:break-word;padding:12px;color:#1b1d21"
 
     def _render_body(self, m: EmailMessage) -> None:
         if self._source_mode:
-            self.browser.setHtml(
+            if m.raw_source:
+                body = m.raw_source.decode("utf-8", "replace")
+            else:
+                body = _headers_dump(m)
+            self._set_body_html(
                 f"<pre style='{self._PRE};font-family:monospace;font-size:12px'>"
-                + _esc(_headers_dump(m)) + "</pre>"
+                + _esc(body) + "</pre>"
             )
             return
 
-        if m.body_html and not self._force_text:
+        want_text = self._force_text or self._prefer_text
+        if m.body_html and not want_text:
             # Bake embedded images straight into the HTML as data: URIs. This is
             # far more reliable across QTextBrowser versions than resolving
             # "cid:" through loadResource(), and it also covers images referenced
             # from CSS (background / url()).
-            html = _inline_cid_images(m.body_html, m.inline_by_cid)
-            self.browser.setHtml(html)
-        elif m.body_text or (self._force_text and m.body_html):
+            self._set_body_html(_inline_cid_images(m.body_html, m.inline_by_cid))
+        elif m.body_text or (want_text and m.body_html):
             text = m.body_text or _html_to_text(m.body_html or "")
-            self.browser.setHtml(
+            self._set_body_html(
                 f"<pre style='{self._PRE};font-family:sans-serif'>" + _esc(text) + "</pre>"
             )
         else:
-            self.browser.setHtml(
+            self._set_body_html(
                 "<div style='color:#5f6368;padding:24px;font-family:sans-serif'>"
-                "(This message has no readable body.)</div>"
+                + _esc(self.tr("(This message has no readable body.)")) + "</div>"
             )
 
     # -- remote content ------------------------------------------- #
     def _on_remote_blocked(self) -> None:
         self._had_remote = True
-        if self._message is not None and not self.browser.allow_remote:
+        if self._message is not None and not self.browser._remote_ok():
+            self._remote_trust_btn.setVisible(bool(self.browser.sender_key))
             self.remote_banner.show()
 
     def _load_remote(self) -> None:
@@ -469,6 +523,39 @@ class ViewerWidget(QWidget):
         self.remote_banner.hide()
         if self._message is not None:
             self._render_body(self._message)
+
+    def _trust_sender(self) -> None:
+        key = self.browser.sender_key
+        if not key:
+            return
+        s = QSettings()
+        current = {str(x).lower() for x in (s.value("viewer/remoteAllowSenders", []) or [])}
+        current.add(key)
+        s.setValue("viewer/remoteAllowSenders", sorted(current))
+        self.browser.allowed_senders = current
+        self.remote_banner.hide()
+        if self._message is not None:
+            self._render_body(self._message)
+
+    # -- zoom / raw source -------------------------------------- #
+    def zoom_by(self, delta: int) -> None:
+        self._zoom = max(-6, min(16, self._zoom + delta))
+        QSettings().setValue("viewer/fontDelta", self._zoom)
+        if self._message is not None:
+            self._render_body(self._message)
+
+    def zoom_reset(self) -> None:
+        self._zoom = 0
+        QSettings().setValue("viewer/fontDelta", 0)
+        if self._message is not None:
+            self._render_body(self._message)
+
+    def copy_raw_source(self) -> None:
+        m = self._message
+        if m is None:
+            return
+        text = m.raw_source.decode("utf-8", "replace") if m.raw_source else _headers_dump(m)
+        QGuiApplication.clipboard().setText(text)
 
     # -- find in message ---------------------------------------- #
     def open_find(self) -> None:
@@ -652,6 +739,16 @@ class ViewerWidget(QWidget):
 
 def _esc(text: str) -> str:
     return _html.escape(text or "")
+
+
+_ADDR_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+
+
+def _sender_key(sender: str) -> str:
+    """The bare e-mail address from a ``"Name <addr>"`` string, lower-cased."""
+
+    m = _ADDR_RE.search(sender or "")
+    return m.group(0).lower() if m else ""
 
 
 def _headers_dump(m: EmailMessage) -> str:

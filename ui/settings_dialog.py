@@ -1,4 +1,5 @@
-"""Preferences dialog: theme, language, remote-content default."""
+"""Preferences dialog: theme, language, date format, body text, remote content,
+updates."""
 
 from __future__ import annotations
 
@@ -11,9 +12,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QSpinBox,
 )
 
 from ui import theme
+
+#: appearance/dateFormat values -> label
+DATE_FORMATS = ("local", "iso", "rfc")
 
 
 class SettingsDialog(QDialog):
@@ -46,6 +51,25 @@ class SettingsDialog(QDialog):
         note.setStyleSheet("color: palette(placeholder-text);")
         form.addRow("", note)
 
+        self.date_combo = QComboBox()
+        self.date_combo.addItem(self.tr("Local (2024-03-05 10:30)"), "local")
+        self.date_combo.addItem(self.tr("ISO 8601 (2024-03-05T10:30)"), "iso")
+        self.date_combo.addItem(self.tr("RFC (Tue, 05 Mar 2024 10:30)"), "rfc")
+        self.date_combo.setCurrentIndex(
+            max(0, self.date_combo.findData(str(s.value("appearance/dateFormat", "local"))))
+        )
+        form.addRow(self.tr("Date format:"), self.date_combo)
+
+        self.font_delta = QSpinBox()
+        self.font_delta.setRange(-4, 12)
+        self.font_delta.setSuffix(" pt")
+        self.font_delta.setValue(int(s.value("viewer/fontDelta", 0) or 0))
+        form.addRow(self.tr("Message text size:"), self.font_delta)
+
+        self.prefer_text = QCheckBox(self.tr("Prefer plain text when a message has both"))
+        self.prefer_text.setChecked(bool(s.value("viewer/preferPlainText", False, type=bool)))
+        form.addRow("", self.prefer_text)
+
         self.auto_remote = QCheckBox(self.tr("Load remote content in messages automatically"))
         self.auto_remote.setChecked(bool(s.value("viewer/autoLoadRemote", False, type=bool)))
         form.addRow("", self.auto_remote)
@@ -70,6 +94,11 @@ class SettingsDialog(QDialog):
         if parent is not None and hasattr(parent, "sync_theme_menu"):
             parent.sync_theme_menu(mode)
         s.setValue("appearance/language", self.lang_combo.currentData())
+        s.setValue("appearance/dateFormat", self.date_combo.currentData())
+        s.setValue("viewer/fontDelta", self.font_delta.value())
+        s.setValue("viewer/preferPlainText", self.prefer_text.isChecked())
         s.setValue("viewer/autoLoadRemote", self.auto_remote.isChecked())
         s.setValue("updates/checkOnStartup", self.check_updates.isChecked())
+        if parent is not None and hasattr(parent, "apply_viewer_prefs"):
+            parent.apply_viewer_prefs()
         self.accept()

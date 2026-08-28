@@ -70,10 +70,12 @@ def safe_filename(name: str, *, fallback: str = "attachment") -> str:
     return name[:200] if len(name) > 200 else name
 
 
-def format_datetime(dt, *, with_tz: bool = True) -> str:
+def format_datetime(dt, *, with_tz: bool = True, style: str = "local") -> str:
     """Format a datetime for display, converted to the viewer's local time zone.
 
     A naive datetime is assumed to already be local; an aware one is converted.
+    ``style`` is one of ``"local"`` (``2024-03-05 10:30`` + tz label),
+    ``"iso"`` (``2024-03-05T10:30``) or ``"rfc"`` (``Tue, 05 Mar 2024 10:30``).
     """
 
     if dt is None:
@@ -82,6 +84,20 @@ def format_datetime(dt, *, with_tz: bool = True) -> str:
         local = dt.astimezone()
     except (ValueError, OSError, OverflowError):
         local = dt
+
+    if style == "iso":
+        try:
+            return local.isoformat(timespec="minutes")
+        except (TypeError, ValueError):
+            return local.strftime("%Y-%m-%dT%H:%M")
+    if style == "rfc":
+        from email.utils import format_datetime as _rfc
+
+        try:
+            return _rfc(local).rsplit(":", 1)[0]  # drop seconds
+        except (TypeError, ValueError):
+            pass
+
     text = local.strftime("%Y-%m-%d %H:%M")
     if with_tz and local.tzinfo is not None:
         off = local.strftime("%z")  # e.g. +0300
