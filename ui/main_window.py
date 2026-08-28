@@ -71,7 +71,7 @@ from parsers.models import EmailMessage, MessageStub, PstDocument
 from ui import theme
 from ui.viewer_widget import ViewerWidget
 from utils.branding import make_app_icon
-from utils.helpers import filter_supported, is_supported_file
+from utils.helpers import filter_supported, format_datetime, is_supported_file
 from utils.workers import (
     FnRunnable,
     GetMessageRunnable,
@@ -141,7 +141,7 @@ class EmailListModel(QAbstractTableModel):
 
 
 def _fmt_date(dt: datetime | None) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+    return format_datetime(dt, with_tz=False)
 
 
 class MailFilterProxy(QSortFilterProxyModel):
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabel("Library")
+        self.tree.setHeaderLabel(self.tr("Library"))
         self.tree.setMinimumWidth(220)
         self.tree.setMouseTracking(True)
         self.tree.viewport().setMouseTracking(True)
@@ -278,7 +278,7 @@ class MainWindow(QMainWindow):
         self.table.selectionModel().currentRowChanged.connect(self._on_table_row)
 
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Filter by sender or subject…")
+        self.filter_edit.setPlaceholderText(self.tr("Filter by sender or subject…"))
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self.proxy.set_needle)
 
@@ -320,65 +320,73 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)  # indeterminate
         self.progress.setMaximumWidth(160)
         self.progress.hide()
-        self._status_label = QLabel("Ready")
+        self._status_label = QLabel(self.tr("Ready"))
         self.statusBar().addWidget(self._status_label, 1)
         self.statusBar().addPermanentWidget(self.progress)
 
     def _build_menus(self) -> None:
         mb = self.menuBar()
 
-        file_menu = mb.addMenu("&File")
-        act_open = file_menu.addAction("&Open…")
+        file_menu = mb.addMenu(self.tr("&File"))
+        act_open = file_menu.addAction(self.tr("&Open…"))
         act_open.setShortcut(QKeySequence.StandardKey.Open)
         act_open.triggered.connect(self._choose_files)
 
-        self._recent_menu = file_menu.addMenu("Open &Recent")
+        self._recent_menu = file_menu.addMenu(self.tr("Open &Recent"))
         self._rebuild_recent_menu()
 
-        self._act_close = file_menu.addAction("&Close Item")
+        self._act_close = file_menu.addAction(self.tr("&Close Item"))
         self._act_close.setShortcut(QKeySequence("Ctrl+W"))
         self._act_close.triggered.connect(self._close_current)
 
-        act_save_att = file_menu.addAction("Save &All Attachments…")
+        act_save_att = file_menu.addAction(self.tr("Save &All Attachments…"))
         act_save_att.triggered.connect(self.viewer.save_all_attachments)
 
         file_menu.addSeparator()
-        act_quit = file_menu.addAction("&Quit")
+        act_prefs = file_menu.addAction(self.tr("&Preferences…"))
+        act_prefs.setMenuRole(QAction.MenuRole.PreferencesRole)
+        act_prefs.setShortcut(QKeySequence.StandardKey.Preferences)
+        act_prefs.triggered.connect(self._open_settings)
+
+        file_menu.addSeparator()
+        act_quit = file_menu.addAction(self.tr("&Quit"))
         act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
 
-        msg_menu = mb.addMenu("&Message")
-        msg_menu.addAction("Save Message &As…").triggered.connect(self.viewer.save_as_eml)
-        msg_menu.addAction("Export to &PDF…").triggered.connect(self.viewer.export_pdf)
-        act_print = msg_menu.addAction("&Print…")
+        msg_menu = mb.addMenu(self.tr("&Message"))
+        msg_menu.addAction(self.tr("Save Message &As…")).triggered.connect(self.viewer.save_as_eml)
+        msg_menu.addAction(self.tr("Export to &PDF…")).triggered.connect(self.viewer.export_pdf)
+        act_print = msg_menu.addAction(self.tr("&Print…"))
         act_print.setShortcut(QKeySequence.StandardKey.Print)
         act_print.triggered.connect(self.viewer.print_message)
         msg_menu.addSeparator()
-        copy_menu = msg_menu.addMenu("&Copy")
-        copy_menu.addAction("Body Text").triggered.connect(self.viewer.copy_body)
-        copy_menu.addAction("Headers").triggered.connect(self.viewer.copy_headers)
+        copy_menu = msg_menu.addMenu(self.tr("&Copy"))
+        copy_menu.addAction(self.tr("Body Text")).triggered.connect(self.viewer.copy_body)
+        copy_menu.addAction(self.tr("Headers")).triggered.connect(self.viewer.copy_headers)
         msg_menu.addSeparator()
-        self._act_plain = msg_menu.addAction("Show Plain &Text")
+        self._act_plain = msg_menu.addAction(self.tr("Show Plain &Text"))
         self._act_plain.setCheckable(True)
         self._act_plain.toggled.connect(self.viewer.set_plain_text_mode)
-        self._act_source = msg_menu.addAction("Show &Headers / Source")
+        self._act_source = msg_menu.addAction(self.tr("Show &Headers / Source"))
         self._act_source.setCheckable(True)
         self._act_source.toggled.connect(self.viewer.set_source_mode)
 
-        view_menu = mb.addMenu("&View")
-        theme_menu = view_menu.addMenu("&Theme")
+        view_menu = mb.addMenu(self.tr("&View"))
+        theme_menu = view_menu.addMenu(self.tr("&Theme"))
         group = QActionGroup(self)
         group.setExclusive(True)
         current = theme.load_mode()
+        self._theme_actions: dict[theme.ThemeMode, QAction] = {}
         for mode in theme.ThemeMode:
             act = QAction(mode.label, self, checkable=True)
             act.setChecked(mode is current)
             act.triggered.connect(lambda _checked, m=mode: self._set_theme(m))
             group.addAction(act)
             theme_menu.addAction(act)
+            self._theme_actions[mode] = act
 
-        help_menu = mb.addMenu("&Help")
-        help_menu.addAction("&About EMPViewer").triggered.connect(self._about)
+        help_menu = mb.addMenu(self.tr("&Help"))
+        help_menu.addAction(self.tr("&About EMPViewer")).triggered.connect(self._about)
 
         # Keyboard shortcuts that are not tied to a menu item.
         QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(self._focus_find)
@@ -419,7 +427,8 @@ class MainWindow(QMainWindow):
         if not path:
             return
         if not is_supported_file(path):
-            self._warn("Could not open file", f"'{path}' is not a supported mail file.")
+            self._warn(self.tr("Could not open file"),
+                       self.tr("'%s' is not a supported mail file.") % path)
             return
         self.open_path(path)
         self.raise_()
@@ -431,7 +440,7 @@ class MainWindow(QMainWindow):
             self._select_top_level_by_path(path)
             return
 
-        self._set_busy(f"Opening {Path(path).name}…")
+        self._set_busy(self.tr("Opening %s…") % Path(path).name)
         task = FnRunnable(load, path)
         task.signals.finished.connect(lambda result, p=path: self._on_loaded(p, result))
         task.signals.error.connect(lambda msg, p=path: self._on_load_error(p, msg))
@@ -462,10 +471,10 @@ class MainWindow(QMainWindow):
             root_item.setExpanded(True)
             self.tree.setCurrentItem(root_item)
         else:  # pragma: no cover - loader contract guarantees the two types
-            self._warn("Open", "Unknown result type from parser.")
+            self._warn(self.tr("Open"), self.tr("Unknown result type from parser."))
             return
 
-        self._status_label.setText(f"Opened {Path(path).name}")
+        self._status_label.setText(self.tr("Opened %s") % Path(path).name)
 
     def _add_folder_items(self, parent_item: QTreeWidgetItem, doc: PstDocument, node, folder_path: str) -> None:
         for child in node.children:
@@ -488,7 +497,7 @@ class MainWindow(QMainWindow):
     def _on_load_error(self, path: str, message: str) -> None:
         self._clear_busy()
         self.loadFailed.emit(message)
-        self._warn("Could not open file", message)
+        self._warn(self.tr("Could not open file"), message)
 
     # ------------------------------------------------------------------ #
     # Tree / table selection
@@ -530,7 +539,7 @@ class MainWindow(QMainWindow):
         self.list_model.set_stubs([])
         self.filter_edit.clear()
         self.viewer.clear()
-        self._set_busy(f"Loading {folder_path}…")
+        self._set_busy(self.tr("Loading %s…") % folder_path)
         task = ListMessagesRunnable(doc.backend, folder_id)
         task.signals.finished.connect(lambda stubs: self._on_folder_loaded(stubs))
         task.signals.error.connect(lambda msg: self._on_folder_error(msg))
@@ -540,11 +549,11 @@ class MainWindow(QMainWindow):
     def _on_folder_loaded(self, stubs: list[MessageStub]) -> None:
         self._clear_busy()
         self.list_model.set_stubs(stubs)
-        self._status_label.setText(f"{len(stubs)} message(s)")
+        self._status_label.setText(self.tr("%n message(s)", "", len(stubs)))
 
     def _on_folder_error(self, message: str) -> None:
         self._clear_busy()
-        self._warn("Folder", message)
+        self._warn(self.tr("Folder"), message)
 
     def _on_table_row(self, current: QModelIndex, _previous: QModelIndex) -> None:
         if not current.isValid() or self._active_backend is None:
@@ -553,10 +562,10 @@ class MainWindow(QMainWindow):
         stub = self.list_model.stub_at(source.row())
         if stub is None:
             return
-        self._set_busy("Opening message…")
+        self._set_busy(self.tr("Opening message…"))
         task = GetMessageRunnable(self._active_backend, stub.backend_id)
         task.signals.finished.connect(self._on_message_loaded)
-        task.signals.error.connect(lambda msg: (self._clear_busy(), self._warn("Message", msg)))
+        task.signals.error.connect(lambda msg: (self._clear_busy(), self._warn(self.tr("Message"), msg)))
         self._track(task)
         submit(task)
 
@@ -606,7 +615,7 @@ class MainWindow(QMainWindow):
         if item is None:
             return
         menu = QMenu(self)
-        act_close = menu.addAction("Close")
+        act_close = menu.addAction(self.tr("Close"))
         if menu.exec(self.tree.viewport().mapToGlobal(pos)) == act_close:
             self._close_item(item)
 
@@ -642,7 +651,7 @@ class MainWindow(QMainWindow):
 
     def _clear_busy(self) -> None:
         self.progress.hide()
-        self._status_label.setText("Ready")
+        self._status_label.setText(self.tr("Ready"))
 
     def _track(self, runnable: Any) -> None:
         self._runnables.append(runnable)
@@ -661,9 +670,9 @@ class MainWindow(QMainWindow):
         start_dir = str(s.value("io/lastDir", str(Path.home())))
         paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open mail files",
+            self.tr("Open mail files"),
             start_dir,
-            "Mail files (*.eml *.msg *.pst *.ost);;All files (*)",
+            self.tr("Mail files (*.eml *.msg *.pst *.ost);;All files (*)"),
         )
         for p in filter_supported(paths):
             self.open_path(p)
@@ -690,7 +699,7 @@ class MainWindow(QMainWindow):
         menu.clear()
         paths = [p for p in self._recent_paths() if Path(p).exists()]
         if not paths:
-            act = menu.addAction("(no recent files)")
+            act = menu.addAction(self.tr("(no recent files)"))
             act.setEnabled(False)
             return
         for p in paths:
@@ -698,7 +707,7 @@ class MainWindow(QMainWindow):
             act.setToolTip(p)
             act.triggered.connect(lambda _checked=False, path=p: self.open_path(path))
         menu.addSeparator()
-        menu.addAction("Clear Recent Files").triggered.connect(self._clear_recent)
+        menu.addAction(self.tr("Clear Recent Files")).triggered.connect(self._clear_recent)
 
     def _clear_recent(self) -> None:
         QSettings().remove("io/recentFiles")
@@ -746,18 +755,29 @@ class MainWindow(QMainWindow):
         theme.apply(QApplication.instance(), mode)
         theme.save_mode(mode)
 
+    def sync_theme_menu(self, mode: theme.ThemeMode) -> None:
+        """Keep the View > Theme radio group in step with the Preferences dialog."""
+        act = self._theme_actions.get(mode)
+        if act is not None:
+            act.setChecked(True)
+
+    def _open_settings(self) -> None:
+        from ui.settings_dialog import SettingsDialog
+
+        dlg = SettingsDialog(self)
+        dlg.exec()
+
     def _about(self) -> None:
         from utils.branding import logo_pixmap
 
         box = QMessageBox(self)
-        box.setWindowTitle("About EMPViewer")
+        box.setWindowTitle(self.tr("About EMPViewer"))
         box.setIconPixmap(logo_pixmap(72))
         box.setText(
             "<h3>EMPViewer</h3>"
-            "<p>A portable viewer for <b>.eml</b>, <b>.msg</b>, <b>.pst</b> and "
-            "<b>.ost</b> mail files.</p>"
-            "<p>Drag files onto the window, or set EMPViewer as the default "
-            "handler for these file types.</p>"
+            "<p>" + self.tr("A viewer for .eml, .msg, .pst and .ost mail files.") + "</p>"
+            "<p>" + self.tr("Drag files onto the window, or set EMPViewer as the default "
+                            "handler for these file types.") + "</p>"
         )
         box.exec()
 

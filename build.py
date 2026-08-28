@@ -187,6 +187,7 @@ def pyinstaller_args(mode: str) -> list[str]:
         mode,  # --onefile or --onedir
         "--add-data", f"{ASSETS}{DATA_SEP}assets",
         "--add-data", f"{LOGO_SRC}{DATA_SEP}.",
+        "--add-data", f"{ROOT / 'translations'}{DATA_SEP}translations",
         # extract_msg ships data files and lazily-imported submodules.
         "--collect-all", "extract_msg",
         "--collect-submodules", "extract_msg",

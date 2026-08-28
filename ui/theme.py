@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QCoreApplication, QSettings
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -23,7 +23,11 @@ class ThemeMode(str, Enum):
 
     @property
     def label(self) -> str:
-        return {"system": "System", "light": "Light", "dark": "Dark"}[self.value]
+        return {
+            "system": QCoreApplication.translate("theme", "System"),
+            "light": QCoreApplication.translate("theme", "Light"),
+            "dark": QCoreApplication.translate("theme", "Dark"),
+        }[self.value]
 
 
 _ACCENT = QColor(76, 141, 255)

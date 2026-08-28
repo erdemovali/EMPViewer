@@ -10,3 +10,5 @@
 *.png       binary
 *.ico       binary
 *.icns      binary
+*.qm        binary
+*.ts        text eol=lf

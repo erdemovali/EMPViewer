@@ -17,7 +17,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QLibraryInfo,
+    QLocale,
+    QSettings,
+    QTimer,
+    QTranslator,
+    Signal,
+)
 from PySide6.QtWidgets import QApplication
 
 # Make ``python main.py`` work regardless of the current directory.
@@ -26,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ui import theme  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 from utils.branding import make_app_icon  # noqa: E402
-from utils.helpers import is_supported_file  # noqa: E402
+from utils.helpers import is_supported_file, resource_path  # noqa: E402
 
 APP_NAME = "EMPViewer"
 ORG_NAME = "EMPViewer"
@@ -64,6 +72,29 @@ def _collect_cli_paths(argv: list[str]) -> list[str]:
     return [a for a in argv[1:] if not a.startswith("-") and is_supported_file(a)]
 
 
+def _install_translators(app: QApplication) -> None:
+    """Load the UI translation for the configured / system language.
+
+    Language preference lives in QSettings ``appearance/language``
+    (``auto`` | ``en`` | ``tr``); ``auto`` follows the OS locale.
+    """
+
+    pref = str(QSettings().value("appearance/language", "auto"))
+    lang = QLocale.system().name().split("_")[0] if pref == "auto" else pref
+    if lang == "en":
+        return
+
+    app_tr = QTranslator(app)
+    qm = resource_path("translations") / f"empviewer_{lang}.qm"
+    if qm.exists() and app_tr.load(str(qm)):
+        app.installTranslator(app_tr)
+
+    qt_tr = QTranslator(app)
+    qt_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    if qt_tr.load(QLocale(lang), "qtbase", "_", qt_dir):
+        app.installTranslator(qt_tr)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
 
@@ -84,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationDomain("empviewer.local")
     app.setWindowIcon(make_app_icon())
 
+    _install_translators(app)
     theme.apply(app, theme.load_mode())
 
     window = MainWindow()

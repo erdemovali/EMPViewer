@@ -13,7 +13,17 @@ import html as _html
 import re
 from typing import Iterable
 
-from PySide6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QUrl, Signal
+from PySide6.QtCore import (
+    QByteArray,
+    QCoreApplication,
+    QEvent,
+    QRect,
+    QSettings,
+    QSize,
+    Qt,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextCursor, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
@@ -37,7 +47,7 @@ from PySide6.QtWidgets import (
 
 from parsers.export import to_eml_bytes
 from parsers.models import Attachment, EmailMessage
-from utils.helpers import human_size, open_with_os, safe_filename, write_temp_attachment
+from utils.helpers import format_datetime, human_size, open_with_os, safe_filename, write_temp_attachment
 
 
 # --------------------------------------------------------------------------- #
@@ -186,29 +196,31 @@ class AttachmentChip(QPushButton):
         try:
             path = write_temp_attachment(self._att.filename, self._att.data)
         except OSError as exc:
-            QMessageBox.warning(self, "Attachment", f"Could not write a temporary copy:\n{exc}")
+            QMessageBox.warning(self, self.tr("Attachment"),
+                                self.tr("Could not write a temporary copy:") + f"\n{exc}")
             return
         if not open_with_os(path):
             QMessageBox.information(
                 self,
-                "Attachment",
-                f"No application is registered to open this file.\nA copy was saved to:\n{path}",
+                self.tr("Attachment"),
+                self.tr("No application is registered to open this file.\nA copy was saved to:")
+                + f"\n{path}",
             )
 
     def save_as(self) -> None:
-        target, _ = QFileDialog.getSaveFileName(self, "Save attachment", self._att.filename)
+        target, _ = QFileDialog.getSaveFileName(self, self.tr("Save attachment"), self._att.filename)
         if not target:
             return
         try:
             with open(target, "wb") as fh:
                 fh.write(self._att.data)
         except OSError as exc:
-            QMessageBox.warning(self, "Attachment", f"Could not save:\n{exc}")
+            QMessageBox.warning(self, self.tr("Attachment"), self.tr("Could not save:") + f"\n{exc}")
 
     def _menu(self, pos) -> None:
         menu = QMenu(self)
-        act_open = menu.addAction("Open")
-        act_save = menu.addAction("Save As…")
+        act_open = menu.addAction(self.tr("Open"))
+        act_save = menu.addAction(self.tr("Save As…"))
         chosen = menu.exec(self.mapToGlobal(pos))
         if chosen == act_open:
             self.open_with_os()
@@ -273,9 +285,9 @@ class ViewerWidget(QWidget):
         self.remote_banner.setObjectName("RemoteBanner")
         lay = QHBoxLayout(self.remote_banner)
         lay.setContentsMargins(10, 6, 10, 6)
-        msg = QLabel("This message contains remote content that was blocked to protect your privacy.")
+        msg = QLabel(self.tr("This message contains remote content that was blocked to protect your privacy."))
         msg.setWordWrap(True)
-        btn = QPushButton("Load remote content")
+        btn = QPushButton(self.tr("Load remote content"))
         btn.clicked.connect(self._load_remote)
         lay.addWidget(msg, 1)
         lay.addWidget(btn)
@@ -290,7 +302,7 @@ class ViewerWidget(QWidget):
         lay.setSpacing(4)
 
         self.find_input = QLineEdit()
-        self.find_input.setPlaceholderText("Find in message…")
+        self.find_input.setPlaceholderText(self.tr("Find in message…"))
         self.find_input.setClearButtonEnabled(True)
         self.find_input.textChanged.connect(lambda: self._find(forward=True, incremental=True))
         self.find_input.returnPressed.connect(lambda: self._find(forward=True))
@@ -302,17 +314,17 @@ class ViewerWidget(QWidget):
         btn_prev = QToolButton()
         btn_prev.setText("▲")
         btn_prev.setAutoRaise(True)
-        btn_prev.setToolTip("Previous match")
+        btn_prev.setToolTip(self.tr("Previous match"))
         btn_prev.clicked.connect(lambda: self._find(forward=False))
         btn_next = QToolButton()
         btn_next.setText("▼")
         btn_next.setAutoRaise(True)
-        btn_next.setToolTip("Next match")
+        btn_next.setToolTip(self.tr("Next match"))
         btn_next.clicked.connect(lambda: self._find(forward=True))
         btn_close = QToolButton()
         btn_close.setText("✕")
         btn_close.setAutoRaise(True)
-        btn_close.setToolTip("Close (Esc)")
+        btn_close.setToolTip(self.tr("Close (Esc)"))
         btn_close.clicked.connect(self.close_find)
 
         lay.addWidget(self.find_input, 1)
@@ -344,9 +356,16 @@ class ViewerWidget(QWidget):
         self._message = None
         self.lbl_subject.setText("")
         self.lbl_meta.setText("")
+        line1 = self.tr("Open an .eml, .msg, .pst or .ost file to read it here.")
+        line2 = self.tr(
+            "Use File > Open, drag a file onto the window, or set EMPViewer "
+            "as the default handler for these file types."
+        )
         self.browser.setHtml(
-            "<div style='color:gray;padding:24px;font-family:sans-serif'>"
-            "Select a message to read it here.</div>"
+            "<div style='color:gray;padding:40px 28px;font-family:sans-serif;line-height:1.6'>"
+            f"<p style='font-size:15px'>{_esc(line1)}</p>"
+            f"<p>{_esc(line2)}</p>"
+            "</div>"
         )
         self.remote_banner.hide()
         self.close_find()
@@ -357,7 +376,9 @@ class ViewerWidget(QWidget):
         self._had_remote = False
         self._source_mode = False
         self._force_text = False
-        self.browser.allow_remote = False
+        self.browser.allow_remote = bool(
+            QSettings().value("viewer/autoLoadRemote", False, type=bool)
+        )
         self.remote_banner.hide()
         self.close_find()
 
@@ -373,15 +394,15 @@ class ViewerWidget(QWidget):
     def _meta_html(m: EmailMessage) -> str:
         rows: list[str] = []
         if m.sender:
-            rows.append(f"<b>From:</b> {_esc(m.sender)}")
+            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'From')}:</b> {_esc(m.sender)}")
         if m.to:
-            rows.append(f"<b>To:</b> {_esc(', '.join(m.to))}")
+            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'To')}:</b> {_esc(', '.join(m.to))}")
         if m.cc:
-            rows.append(f"<b>Cc:</b> {_esc(', '.join(m.cc))}")
+            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Cc')}:</b> {_esc(', '.join(m.cc))}")
         if m.date:
-            rows.append(f"<b>Date:</b> {_esc(m.date.strftime('%Y-%m-%d %H:%M'))}")
+            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Date')}:</b> {_esc(format_datetime(m.date))}")
         if m.folder_path:
-            rows.append(f"<b>Folder:</b> {_esc(m.folder_path)}")
+            rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Folder')}:</b> {_esc(m.folder_path)}")
         return "<br>".join(rows)
 
     def _render_body(self, m: EmailMessage) -> None:
@@ -464,7 +485,7 @@ class ViewerWidget(QWidget):
             )
             self.browser.setTextCursor(cursor)
             found = self.browser.find(text, flags)
-        self._find_status.setText("" if found else "No matches")
+        self._find_status.setText("" if found else self.tr("No matches"))
 
     def eventFilter(self, obj, event):  # noqa: N802
         if obj is self.find_input and event.type() == QEvent.Type.KeyPress:
@@ -518,10 +539,11 @@ class ViewerWidget(QWidget):
 
     def save_as_eml(self) -> None:
         if self._message is None:
-            QMessageBox.information(self, "Save Message", "No message is open.")
+            QMessageBox.information(self, self.tr("Save Message"), self.tr("No message is open."))
             return
         target, _ = QFileDialog.getSaveFileName(
-            self, "Save message as", self._default_name(".eml"), "Mail message (*.eml)"
+            self, self.tr("Save message as"), self._default_name(".eml"),
+            self.tr("Mail message (*.eml)")
         )
         if not target:
             return
@@ -529,14 +551,15 @@ class ViewerWidget(QWidget):
             with open(target, "wb") as fh:
                 fh.write(to_eml_bytes(self._message))
         except OSError as exc:
-            QMessageBox.warning(self, "Save Message", f"Could not save:\n{exc}")
+            QMessageBox.warning(self, self.tr("Save Message"), self.tr("Could not save:") + f"\n{exc}")
 
     def export_pdf(self) -> None:
         if self._message is None:
-            QMessageBox.information(self, "Export to PDF", "No message is open.")
+            QMessageBox.information(self, self.tr("Export to PDF"), self.tr("No message is open."))
             return
         target, _ = QFileDialog.getSaveFileName(
-            self, "Export to PDF", self._default_name(".pdf"), "PDF document (*.pdf)"
+            self, self.tr("Export to PDF"), self._default_name(".pdf"),
+            self.tr("PDF document (*.pdf)")
         )
         if not target:
             return
@@ -547,7 +570,7 @@ class ViewerWidget(QWidget):
 
     def print_message(self) -> None:
         if self._message is None:
-            QMessageBox.information(self, "Print", "No message is open.")
+            QMessageBox.information(self, self.tr("Print"), self.tr("No message is open."))
             return
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         if QPrintDialog(printer, self).exec():
@@ -564,9 +587,10 @@ class ViewerWidget(QWidget):
     # -- misc ------------------------------------------------- #
     def save_all_attachments(self) -> None:
         if not self._message or not self._message.visible_attachments:
-            QMessageBox.information(self, "Attachments", "This message has no attachments.")
+            QMessageBox.information(self, self.tr("Attachments"),
+                                   self.tr("This message has no attachments."))
             return
-        folder = QFileDialog.getExistingDirectory(self, "Save all attachments to…")
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Save all attachments to…"))
         if not folder:
             return
         from pathlib import Path
@@ -578,7 +602,10 @@ class ViewerWidget(QWidget):
                 saved += 1
             except OSError:
                 continue
-        QMessageBox.information(self, "Attachments", f"Saved {saved} attachment(s) to:\n{folder}")
+        QMessageBox.information(
+            self, self.tr("Attachments"),
+            self.tr("Saved %n attachment(s) to:", "", saved) + f"\n{folder}",
+        )
 
 
 def _esc(text: str) -> str:
@@ -592,15 +619,15 @@ def _headers_dump(m: EmailMessage) -> str:
         if value:
             lines.append(f"{label}: {value}")
 
-    add("From", m.sender)
-    add("To", ", ".join(m.to))
-    add("Cc", ", ".join(m.cc))
-    add("Date", m.date.strftime("%Y-%m-%d %H:%M") if m.date else "")
-    add("Subject", m.subject)
-    add("Folder", m.folder_path or "")
+    add(QCoreApplication.translate("ViewerWidget", "From"), m.sender)
+    add(QCoreApplication.translate("ViewerWidget", "To"), ", ".join(m.to))
+    add(QCoreApplication.translate("ViewerWidget", "Cc"), ", ".join(m.cc))
+    add(QCoreApplication.translate("ViewerWidget", "Date"), format_datetime(m.date) if m.date else "")
+    add(QCoreApplication.translate("ViewerWidget", "Subject"), m.subject)
+    add(QCoreApplication.translate("ViewerWidget", "Folder"), m.folder_path or "")
     for key, value in (m.headers or {}).items():
         add(str(key), str(value))
-    return "\n".join(lines) or "(no headers)"
+    return "\n".join(lines) or QCoreApplication.translate("ViewerWidget", "(no headers)")
 
 
 def _html_to_text(html: str) -> str:

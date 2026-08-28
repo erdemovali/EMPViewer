@@ -70,6 +70,26 @@ def safe_filename(name: str, *, fallback: str = "attachment") -> str:
     return name[:200] if len(name) > 200 else name
 
 
+def format_datetime(dt, *, with_tz: bool = True) -> str:
+    """Format a datetime for display, converted to the viewer's local time zone.
+
+    A naive datetime is assumed to already be local; an aware one is converted.
+    """
+
+    if dt is None:
+        return ""
+    try:
+        local = dt.astimezone()
+    except (ValueError, OSError, OverflowError):
+        local = dt
+    text = local.strftime("%Y-%m-%d %H:%M")
+    if with_tz and local.tzinfo is not None:
+        off = local.strftime("%z")  # e.g. +0300
+        if len(off) == 5:
+            text = f"{text} UTC{off[:3]}:{off[3:]}"
+    return text
+
+
 def human_size(num_bytes: int) -> str:
     """Format a byte count like ``1.4 MB``."""
 
