@@ -52,7 +52,12 @@ class FnRunnable(_BaseRunnable):
     """
 
     def __init__(
-        self, fn: Callable[..., Any], *args: Any, pass_cancel: bool = False, **kwargs: Any
+        self,
+        fn: Callable[..., Any],
+        *args: Any,
+        pass_cancel: bool = False,
+        pass_progress: bool = False,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self._fn = fn
@@ -62,14 +67,25 @@ class FnRunnable(_BaseRunnable):
         #: that returns this runnable's cancelled flag - lets a long operation
         #: bail out mid-flight instead of only at the boundaries.
         self._pass_cancel = pass_cancel
+        #: When True, ``fn`` gets an ``on_progress(done, total)`` keyword that
+        #: forwards to :attr:`WorkerSignals.progress` as ``(percent, "")``.
+        self._pass_progress = pass_progress
+
+    def _emit_progress(self, done: int, total: int) -> None:
+        if self._cancelled:
+            return
+        pct = int(done * 100 / total) if total else -1
+        self.signals.progress.emit(pct, "")
 
     @Slot()
     def run(self) -> None:  # noqa: D401
         if self._cancelled:
             return
-        kwargs = self._kwargs
+        kwargs = dict(self._kwargs)
         if self._pass_cancel:
-            kwargs = {**kwargs, "should_cancel": lambda: self._cancelled}
+            kwargs["should_cancel"] = lambda: self._cancelled
+        if self._pass_progress:
+            kwargs["on_progress"] = self._emit_progress
         try:
             result = self._fn(*self._args, **kwargs)
         except ParserError as exc:
@@ -99,7 +115,9 @@ class ListMessagesRunnable(_BaseRunnable):
         if self._cancelled:
             return
         try:
-            stubs: list[MessageStub] = self._backend.list_messages(self._folder_id)
+            stubs: list[MessageStub] = self._backend.list_messages(
+                self._folder_id, should_cancel=lambda: self._cancelled
+            )
         except ParserError as exc:
             log.info("list_messages(%r) failed: %s", self._folder_id, exc.message)
             if not self._cancelled:

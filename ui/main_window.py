@@ -698,7 +698,11 @@ class MainWindow(QMainWindow):
         from parsers.export import export_folder
 
         self._set_busy(self.tr("Exporting messages…"))
-        task = FnRunnable(export_folder, doc.backend, node, dest, recursive=True, pass_cancel=True)
+        task = FnRunnable(
+            export_folder, doc.backend, node, dest,
+            recursive=True, pass_cancel=True, pass_progress=True,
+        )
+        task.signals.progress.connect(self._on_progress)
         task.signals.finished.connect(lambda n: self._on_export_done(int(n), dest))
         task.signals.error.connect(self._on_export_error)
         self._track(task)
@@ -883,11 +887,21 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     def _set_busy(self, text: str) -> None:
         self._status_label.setText(text)
+        self.progress.setRange(0, 0)  # indeterminate until a percentage arrives
         self.progress.show()
         self._cancel_btn.show()
 
+    def _on_progress(self, percent: int, _msg: str) -> None:
+        if percent < 0:
+            self.progress.setRange(0, 0)
+        else:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(percent)
+
     def _clear_busy(self) -> None:
         self.progress.hide()
+        self.progress.setRange(0, 0)
+        self.progress.reset()
         self._cancel_btn.hide()
         self._status_label.setText(self.tr("Ready"))
 

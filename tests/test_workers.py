@@ -58,7 +58,7 @@ def test_cancel_suppresses_the_result() -> None:
 
 
 class _FakeBackend:
-    def list_messages(self, folder_id):
+    def list_messages(self, folder_id, *, should_cancel=None):
         if folder_id == "bad":
             raise RuntimeError("kaboom")
         return ["stub-a", "stub-b"]
@@ -79,3 +79,32 @@ def test_get_message_runnable_uses_parser_message() -> None:
     err = _collect(r.signals.error)
     r.run()
     assert err and "message unreadable" in err[0]
+
+
+def test_pass_progress_forwards_percentages() -> None:
+    seen = []
+
+    def work(*, on_progress):
+        on_progress(1, 4)
+        on_progress(4, 4)
+        return "done"
+
+    r = workers.FnRunnable(work, pass_progress=True)
+    r.signals.progress.connect(lambda pct, _m: seen.append(pct))
+    done = _collect(r.signals.finished)
+    r.run()
+    assert seen == [25, 100]
+    assert done == ["done"]
+
+
+def test_pass_cancel_and_progress_together() -> None:
+    def work(*, should_cancel, on_progress):
+        assert should_cancel() is False
+        on_progress(0, 0)  # indeterminate -> -1
+        return "ok"
+
+    r = workers.FnRunnable(work, pass_cancel=True, pass_progress=True)
+    seen = []
+    r.signals.progress.connect(lambda pct, _m: seen.append(pct))
+    r.run()
+    assert seen == [-1]

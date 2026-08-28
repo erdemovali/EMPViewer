@@ -55,7 +55,9 @@ class PstBackend(abc.ABC):
     def folder_tree(self) -> FolderNode: ...
 
     @abc.abstractmethod
-    def list_messages(self, folder_id: FolderId) -> list[MessageStub]: ...
+    def list_messages(
+        self, folder_id: FolderId, *, should_cancel=None
+    ) -> list[MessageStub]: ...
 
     @abc.abstractmethod
     def get_message(self, message_id: MessageId) -> EmailMessage: ...
@@ -150,7 +152,7 @@ class NativePstBackend(PstBackend):
                     continue
         return node
 
-    def list_messages(self, folder_id) -> list[MessageStub]:
+    def list_messages(self, folder_id, *, should_cancel=None) -> list[MessageStub]:
         from .pst_native import (
             MSGFLAG_HASATTACH,
             MSGFLAG_READ,
@@ -168,7 +170,9 @@ class NativePstBackend(PstBackend):
         with self._lock:
             rows = self._pst.folder_contents(folder_id)
             stubs: list[MessageStub] = []
-            for row in rows:
+            for i, row in enumerate(rows):
+                if should_cancel is not None and (i & 0x3FF) == 0 and should_cancel():
+                    return stubs
                 nid = row.get("_rowid", 0)
                 if not nid:
                     continue
@@ -317,7 +321,7 @@ class LibpffBackend(PstBackend):
             )
         return node
 
-    def list_messages(self, folder_id: FolderId) -> list[MessageStub]:
+    def list_messages(self, folder_id: FolderId, *, should_cancel=None) -> list[MessageStub]:
         with self._lock:
             folder = self._resolve_folder(folder_id)
             try:
@@ -569,7 +573,7 @@ class ReadpstBackend(PstBackend):
             raise CorruptFileError(self._path, "The store is not open.")
         return self._root_node
 
-    def list_messages(self, folder_id: FolderId) -> list[MessageStub]:
+    def list_messages(self, folder_id: FolderId, *, should_cancel=None) -> list[MessageStub]:
         from .eml_parser import parse_eml
 
         with self._lock:
