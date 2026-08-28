@@ -17,7 +17,9 @@ from typing import Iterable
 
 #: Every extension EMPViewer can open. Reused by the loader, the drag-and-drop
 #: filter and the Windows ``--register`` helper so they can never drift apart.
-SUPPORTED_EXTS: frozenset[str] = frozenset({".eml", ".msg", ".pst", ".ost"})
+SUPPORTED_EXTS: frozenset[str] = frozenset(
+    {".eml", ".msg", ".pst", ".ost", ".ics", ".vcf", ".mbox"}
+)
 
 #: Extensions that go through the PST/OST backend path.
 PST_EXTS: frozenset[str] = frozenset({".pst", ".ost"})

@@ -299,8 +299,8 @@ Bir kopya şuraya kaydedildi:</translation>
         <translation>Posta dosyalarını aç</translation>
     </message>
     <message>
-        <source>Mail files (*.eml *.msg *.pst *.ost);;All files (*)</source>
-        <translation>Posta dosyaları (*.eml *.msg *.pst *.ost);;Tüm dosyalar (*)</translation>
+        <source>Mail files (*.eml *.msg *.pst *.ost *.mbox *.ics *.vcf);;All files (*)</source>
+        <translation>Posta dosyaları (*.eml *.msg *.pst *.ost *.mbox *.ics *.vcf);;Tüm dosyalar (*)</translation>
     </message>
     <message>
         <source>(no recent files)</source>

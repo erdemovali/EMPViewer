@@ -44,6 +44,18 @@ def load(path: str | Path) -> LoadResult:
             from .pst_parser import open_pst
 
             return open_pst(p)
+        if suffix == ".ics":
+            from .calendar_parser import parse_ics
+
+            return parse_ics(p)
+        if suffix == ".vcf":
+            from .vcard_parser import parse_vcf
+
+            return parse_vcf(p)
+        if suffix == ".mbox":
+            from .mbox_parser import open_mbox
+
+            return open_mbox(p)
     except ParserError:
         raise
     except Exception as exc:  # noqa: BLE001 - defensive catch-all -> typed error

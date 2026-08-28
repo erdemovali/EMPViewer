@@ -57,7 +57,7 @@ def test_safe_filename_strips_paths_and_reserved() -> None:
 
 
 def test_supported_exts_constant() -> None:
-    assert SUPPORTED_EXTS == frozenset({".eml", ".msg", ".pst", ".ost"})
+    assert {".eml", ".msg", ".pst", ".ost", ".ics", ".vcf", ".mbox"} <= SUPPORTED_EXTS
     assert not is_supported_file("whatever.zip")
 
 

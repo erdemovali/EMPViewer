@@ -934,7 +934,7 @@ class MainWindow(QMainWindow):
             self,
             self.tr("Open mail files"),
             start_dir,
-            self.tr("Mail files (*.eml *.msg *.pst *.ost);;All files (*)"),
+            self.tr("Mail files (*.eml *.msg *.pst *.ost *.mbox *.ics *.vcf);;All files (*)"),
         )
         for p in filter_supported(paths):
             self.open_path(p)
