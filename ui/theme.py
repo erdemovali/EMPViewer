@@ -211,6 +211,8 @@ QToolTip {
 }
 
 QTextBrowser { border: 0; }
+/* The message body is always a light sheet, in both themes. */
+#MessageBody { background: #ffffff; color: #1b1d21; }
 
 #HeaderBox { border-bottom: 1px solid palette(mid); }
 #FindBar { border-bottom: 1px solid palette(mid); background: palette(alternate-base); }

@@ -367,8 +367,7 @@ class MainWindow(QMainWindow):
         act_quit.triggered.connect(self.close)
 
         msg_menu = mb.addMenu(self.tr("&Message"))
-        msg_menu.addAction(self.tr("Save Message &As…")).triggered.connect(self.viewer.save_as_eml)
-        msg_menu.addAction(self.tr("Export to &PDF…")).triggered.connect(self.viewer.export_pdf)
+        msg_menu.addAction(self.tr("Save Message &As…")).triggered.connect(self.viewer.save_message)
         act_print = msg_menu.addAction(self.tr("&Print…"))
         act_print.setShortcut(QKeySequence.StandardKey.Print)
         act_print.triggered.connect(self.viewer.print_message)

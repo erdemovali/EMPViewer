@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import html as _html
 import re
+from pathlib import Path
 from typing import Iterable
 
 from PySide6.QtCore import (
@@ -248,6 +249,10 @@ class ViewerWidget(QWidget):
         root.addWidget(self._build_header())
         root.addWidget(self._build_remote_banner())
         self.browser = RemoteBlockingBrowser(self)
+        # The message body is always shown on a light "sheet" - HTML mail carries
+        # its own colours that assume a white background, so following a dark app
+        # theme here makes dark-on-dark text unreadable.
+        self.browser.setObjectName("MessageBody")
         self.browser.remoteContentBlocked.connect(self._on_remote_blocked)
         root.addWidget(self._build_find_bar())
         root.addWidget(self.browser, 1)
@@ -362,7 +367,7 @@ class ViewerWidget(QWidget):
             "as the default handler for these file types."
         )
         self.browser.setHtml(
-            "<div style='color:gray;padding:40px 28px;font-family:sans-serif;line-height:1.6'>"
+            "<div style='color:#5f6368;padding:40px 28px;font-family:sans-serif;line-height:1.6'>"
             f"<p style='font-size:15px'>{_esc(line1)}</p>"
             f"<p>{_esc(line2)}</p>"
             "</div>"
@@ -405,11 +410,12 @@ class ViewerWidget(QWidget):
             rows.append(f"<b>{QCoreApplication.translate('ViewerWidget', 'Folder')}:</b> {_esc(m.folder_path)}")
         return "<br>".join(rows)
 
+    _PRE = "white-space:pre-wrap;word-wrap:break-word;padding:12px;color:#1b1d21"
+
     def _render_body(self, m: EmailMessage) -> None:
         if self._source_mode:
             self.browser.setHtml(
-                "<pre style='white-space:pre-wrap;word-wrap:break-word;"
-                "font-family:monospace;font-size:12px;padding:12px'>"
+                f"<pre style='{self._PRE};font-family:monospace;font-size:12px'>"
                 + _esc(_headers_dump(m)) + "</pre>"
             )
             return
@@ -424,12 +430,11 @@ class ViewerWidget(QWidget):
         elif m.body_text or (self._force_text and m.body_html):
             text = m.body_text or _html_to_text(m.body_html or "")
             self.browser.setHtml(
-                "<pre style='white-space:pre-wrap;word-wrap:break-word;"
-                "font-family:sans-serif;padding:12px'>" + _esc(text) + "</pre>"
+                f"<pre style='{self._PRE};font-family:sans-serif'>" + _esc(text) + "</pre>"
             )
         else:
             self.browser.setHtml(
-                "<div style='color:gray;padding:24px;font-family:sans-serif'>"
+                "<div style='color:#5f6368;padding:24px;font-family:sans-serif'>"
                 "(This message has no readable body.)</div>"
             )
 
@@ -537,36 +542,54 @@ class ViewerWidget(QWidget):
         base = safe_filename(self._message.display_name if self._message else "message")
         return f"{base or 'message'}{ext}"
 
-    def save_as_eml(self) -> None:
+    def _message_html(self) -> str:
+        m = self._message
+        assert m is not None
+        if m.body_html:
+            return _inline_cid_images(m.body_html, m.inline_by_cid)
+        return (
+            "<!doctype html><meta charset='utf-8'>"
+            f"<title>{_esc(m.display_name)}</title>"
+            f"<pre style='white-space:pre-wrap;word-wrap:break-word'>{_esc(m.body_text or '')}</pre>"
+        )
+
+    def _write_pdf(self, path: str) -> None:
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        self.browser.document().print_(printer)
+
+    def save_message(self) -> None:
         if self._message is None:
             QMessageBox.information(self, self.tr("Save Message"), self.tr("No message is open."))
             return
-        target, _ = QFileDialog.getSaveFileName(
+        by_filter = {
+            self.tr("Mail message (*.eml)"): ".eml",
+            self.tr("PDF document (*.pdf)"): ".pdf",
+            self.tr("Web page (*.html)"): ".html",
+            self.tr("Plain text (*.txt)"): ".txt",
+        }
+        target, chosen = QFileDialog.getSaveFileName(
             self, self.tr("Save message as"), self._default_name(".eml"),
-            self.tr("Mail message (*.eml)")
+            ";;".join(by_filter),
         )
         if not target:
             return
+        ext = Path(target).suffix.lower()
+        if not ext:
+            ext = by_filter.get(chosen, ".eml")
+            target += ext
         try:
-            with open(target, "wb") as fh:
-                fh.write(to_eml_bytes(self._message))
+            if ext == ".pdf":
+                self._write_pdf(target)
+            elif ext in (".html", ".htm"):
+                Path(target).write_text(self._message_html(), encoding="utf-8")
+            elif ext == ".txt":
+                Path(target).write_text(self.browser.document().toPlainText(), encoding="utf-8")
+            else:
+                Path(target).write_bytes(to_eml_bytes(self._message))
         except OSError as exc:
             QMessageBox.warning(self, self.tr("Save Message"), self.tr("Could not save:") + f"\n{exc}")
-
-    def export_pdf(self) -> None:
-        if self._message is None:
-            QMessageBox.information(self, self.tr("Export to PDF"), self.tr("No message is open."))
-            return
-        target, _ = QFileDialog.getSaveFileName(
-            self, self.tr("Export to PDF"), self._default_name(".pdf"),
-            self.tr("PDF document (*.pdf)")
-        )
-        if not target:
-            return
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(target)
-        self.browser.document().print_(printer)
 
     def print_message(self) -> None:
         if self._message is None:
@@ -593,7 +616,6 @@ class ViewerWidget(QWidget):
         folder = QFileDialog.getExistingDirectory(self, self.tr("Save all attachments to…"))
         if not folder:
             return
-        from pathlib import Path
 
         saved = 0
         for att in self._message.visible_attachments:

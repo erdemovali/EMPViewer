@@ -19,9 +19,11 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QDir,
     QEvent,
     QLibraryInfo,
     QLocale,
+    QLockFile,
     QSettings,
     QTimer,
     QTranslator,
@@ -82,20 +84,19 @@ def _ipc_name() -> str:
     return f"EMPViewer-{user}"
 
 
-def _forward_to_running_instance(argv: list[str]) -> bool:
-    """If another instance is listening, hand it our file paths and return True."""
+def _forward_to_running_instance(argv: list[str]) -> None:
+    """Best-effort: hand our file paths to the instance that holds the lock."""
 
     sock = QLocalSocket()
     sock.connectToServer(_ipc_name())
-    if not sock.waitForConnected(250):
+    if not sock.waitForConnected(1000):
         sock.abort()
-        return False
-    payload = "\n".join(_collect_cli_paths(argv)).encode("utf-8")
-    sock.write(payload)
+        return
+    sock.write("\n".join(_collect_cli_paths(argv)).encode("utf-8"))
     sock.flush()
     sock.waitForBytesWritten(1000)
     sock.disconnectFromServer()
-    return True
+    sock.waitForDisconnected(1000)
 
 
 def _serve_single_instance(window: MainWindow) -> QLocalServer | None:
@@ -166,9 +167,14 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationDomain("empviewer.local")
     app.setWindowIcon(make_app_icon())
 
-    # Single instance: a second launch forwards its files to the running window.
-    if _forward_to_running_instance(argv):
+    # Single instance: QLockFile decides who is primary (it detects a lock left
+    # by a crashed process); a second launch forwards its files and exits.
+    lock = QLockFile(f"{QDir.tempPath()}/{_ipc_name()}.lock")
+    lock.setStaleLockTime(30_000)
+    if not lock.tryLock(100):
+        _forward_to_running_instance(argv)
         return 0
+    app._instance_lock = lock  # hold the lock for the process lifetime
 
     _install_translators(app)
     theme.apply(app, theme.load_mode())
