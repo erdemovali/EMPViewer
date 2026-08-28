@@ -173,7 +173,8 @@ class AttachmentChip(QPushButton):
     def __init__(self, attachment: Attachment, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._att = attachment
-        self.setText(f"  {attachment.filename}  ·  {human_size(attachment.size)}")
+        self.setObjectName("AttachmentChip")
+        self.setText(f"{attachment.filename}  ·  {human_size(attachment.size)}")
         self.setToolTip(f"{attachment.filename}\n{attachment.mime_type} — {human_size(attachment.size)}")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
