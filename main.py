@@ -190,8 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
 
     # Files passed on the command line (Windows / Linux double-click, CLI use).
-    for path in _collect_cli_paths(argv):
+    cli_paths = _collect_cli_paths(argv)
+    for path in cli_paths:
         QTimer.singleShot(0, lambda p=path: window.load_external_path(p))
+
+    # Reopen the previous Library, unless this launch names files of its own.
+    # Only the primary instance gets here (a second launch forwarded and exited
+    # above), and the window is already shown, so any dialog has a parent.
+    if not cli_paths:
+        QTimer.singleShot(0, window.restore_session)
 
     # Release any macOS FileOpen events queued before the window existed.
     QTimer.singleShot(0, app.flush_pending)

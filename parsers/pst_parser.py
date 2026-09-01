@@ -26,16 +26,20 @@ from __future__ import annotations
 
 import abc
 import html as _html
+import logging
 import shutil
 import subprocess
 import tempfile
 import threading
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
 from ._hdr import enrich_from_headers
 from .errors import CorruptFileError, MissingDependencyError, ParserError
 from .models import Attachment, EmailMessage, FolderNode, MessageStub, PstDocument
+
+log = logging.getLogger("empviewer.pst")
 
 # A backend_id for a folder is a tuple of sub-folder indices from the root.
 FolderId = tuple[int, ...]
@@ -56,7 +60,7 @@ class PstBackend(abc.ABC):
 
     @abc.abstractmethod
     def list_messages(
-        self, folder_id: FolderId, *, should_cancel=None
+        self, folder_id: FolderId, *, should_cancel=None, on_progress=None
     ) -> list[MessageStub]: ...
 
     @abc.abstractmethod
@@ -106,11 +110,17 @@ class NativePstBackend(PstBackend):
 
     name = "native"
 
+    #: How many recently listed folders to keep fully decoded in memory. The
+    #: search indexer and the user's clicks otherwise re-parse the same big
+    #: contents table two or three times over.
+    _STUB_CACHE_MAX = 12
+
     def __init__(self) -> None:
         self._pst = None
         self._path = ""
         self._lock = threading.RLock()
         self._folder_paths: dict[int, str] = {}
+        self._stub_cache: "OrderedDict[int, list[MessageStub]]" = OrderedDict()
 
     def open(self, path: str) -> None:
         from . import pst_native
@@ -125,6 +135,7 @@ class NativePstBackend(PstBackend):
 
     def close(self) -> None:
         with self._lock:
+            self._stub_cache.clear()
             try:
                 if self._pst is not None:
                     self._pst.close()
@@ -162,7 +173,7 @@ class NativePstBackend(PstBackend):
                     continue
         return node
 
-    def list_messages(self, folder_id, *, should_cancel=None) -> list[MessageStub]:
+    def list_messages(self, folder_id, *, should_cancel=None, on_progress=None) -> list[MessageStub]:
         from .pst_native import (
             MSGFLAG_HASATTACH,
             MSGFLAG_READ,
@@ -179,13 +190,25 @@ class NativePstBackend(PstBackend):
         )
 
         with self._lock:
+            cached = self._stub_cache.get(folder_id)
+            if cached is not None:
+                self._stub_cache.move_to_end(folder_id)
+                if on_progress is not None:
+                    on_progress(len(cached), len(cached))
+                return cached
+
             rows = self._pst.folder_contents(folder_id)
+            total = len(rows)
+            skipped_no_nid = 0
             stubs: list[MessageStub] = []
             for i, row in enumerate(rows):
                 if should_cancel is not None and (i & 0x3FF) == 0 and should_cancel():
                     return stubs
+                if on_progress is not None and (i & 0x1FF) == 0:
+                    on_progress(i, total)
                 nid = row.get("_rowid", 0)
                 if not nid:
+                    skipped_no_nid += 1
                     continue
                 subj = row.get(PID_SUBJECT) or ""
                 if isinstance(subj, (bytes, bytearray)):
@@ -209,6 +232,19 @@ class NativePstBackend(PstBackend):
                         unread=not (mflags & MSGFLAG_READ),
                     )
                 )
+            if on_progress is not None:
+                on_progress(total, total)
+            if skipped_no_nid:
+                log.debug(
+                    "list_messages(folder=%r): %d contents rows -> %d stubs "
+                    "(%d rows had no message id)",
+                    folder_id, total, len(stubs), skipped_no_nid,
+                )
+            if should_cancel is None or not should_cancel():
+                self._stub_cache[folder_id] = stubs
+                self._stub_cache.move_to_end(folder_id)
+                while len(self._stub_cache) > self._STUB_CACHE_MAX:
+                    self._stub_cache.popitem(last=False)
             return stubs
 
     def get_message(self, message_id) -> EmailMessage:
@@ -332,7 +368,9 @@ class LibpffBackend(PstBackend):
             )
         return node
 
-    def list_messages(self, folder_id: FolderId, *, should_cancel=None) -> list[MessageStub]:
+    def list_messages(
+        self, folder_id: FolderId, *, should_cancel=None, on_progress=None
+    ) -> list[MessageStub]:
         with self._lock:
             folder = self._resolve_folder(folder_id)
             try:
@@ -341,6 +379,8 @@ class LibpffBackend(PstBackend):
                 count = 0
             stubs: list[MessageStub] = []
             for i in range(count):
+                if on_progress is not None and (i & 0x1FF) == 0:
+                    on_progress(i, count)
                 try:
                     m = folder.get_sub_message(i)
                     n_att = _call(m, "get_number_of_attachments")
@@ -357,6 +397,8 @@ class LibpffBackend(PstBackend):
                     stubs.append(
                         MessageStub(backend_id=(folder_id, i), sender="", subject="(unreadable message)", date=None)
                     )
+            if on_progress is not None:
+                on_progress(count, count)
             return stubs
 
     def get_message(self, message_id: MessageId) -> EmailMessage:
@@ -584,13 +626,18 @@ class ReadpstBackend(PstBackend):
             raise CorruptFileError(self._path, "The store is not open.")
         return self._root_node
 
-    def list_messages(self, folder_id: FolderId, *, should_cancel=None) -> list[MessageStub]:
+    def list_messages(
+        self, folder_id: FolderId, *, should_cancel=None, on_progress=None
+    ) -> list[MessageStub]:
         from .eml_parser import parse_eml
 
         with self._lock:
             _path, files = self._index.get(folder_id, ("", []))
+            total = len(files)
             stubs: list[MessageStub] = []
             for i, f in enumerate(files):
+                if on_progress is not None and (i & 0x1FF) == 0:
+                    on_progress(i, total)
                 try:
                     m = parse_eml(f)
                     stubs.append(
@@ -603,6 +650,8 @@ class ReadpstBackend(PstBackend):
                     stubs.append(
                         MessageStub(backend_id=(folder_id, i), sender="", subject=f.stem, date=None)
                     )
+            if on_progress is not None:
+                on_progress(total, total)
             return stubs
 
     def get_message(self, message_id: MessageId) -> EmailMessage:

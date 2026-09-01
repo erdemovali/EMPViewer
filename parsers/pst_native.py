@@ -549,6 +549,7 @@ class TC:
         n_cols = info[1]
         self._row_size = u16(info, 8)              # rgib[TCI_bm]
         self._ceb_off = u16(info, 6)              # rgib[TCI_1b] -> start of cell-existence bitmap
+        self._ri_hid = u32(info, 0x0A)            # hidRowIndex -> BTH of {dwRowID: dwRowIndex}
         hnid_rows = u32(info, 0x0E)
         self._cols: list[tuple[int, int, int, int, int]] = []  # (pid, ptype, ib, cb, ibit)
         for i in range(n_cols):
@@ -569,38 +570,96 @@ class TC:
             return []
         return self._ndb.read_data_blocks(ref[0])
 
-    @property
-    def row_count(self) -> int:
-        """Number of rows without decoding any of them.
+    def _row_index(self) -> list[int] | None:
+        """Matrix positions of the *live* rows, from the Row Index BTH.
 
-        Matches what :meth:`__iter__` yields (see :func:`_iter_rows`): each block
-        holds ``floor(len(block) / row_size)`` whole rows.
+        A folder that has seen many deletions keeps stale / zeroed slots in the
+        row matrix, so a linear walk over-counts and yields junk rows. The Row
+        Index ([MS-PST] 2.3.4.3) maps ``dwRowID -> dwRowIndex`` for exactly the
+        rows that are really there; return those ``dwRowIndex`` values in order.
+        Returns ``None`` when the store has no usable Row Index (fall back to a
+        linear scan then).
         """
+
+        hid = getattr(self, "_ri_hid", 0)
+        if not hid:
+            return None
+        try:
+            hdr = self.hn.get(hid)
+            if len(hdr) < 8 or hdr[0] != 0xB5:
+                return None
+            idx: list[int] = []
+            for rec in _bth_records(self.hn, u32(hdr, 4), hdr[1], hdr[2], hdr[3]):
+                if len(rec) >= 8:
+                    idx.append(u32(rec, 4))
+        except Exception:  # noqa: BLE001 - any BTH damage -> linear fallback
+            return None
+
+        # Trust the index only if it actually lines up with the matrix we hold.
+        # It won't when the store is mid-write (an export still running) or when
+        # some row blocks failed to assemble: the index then names rows we have
+        # no bytes for, and honouring it would hide most of the folder. Showing
+        # every matrix slot is the safer wrong answer than showing a handful.
+        if idx:
+            slots = self.slot_count
+            past_end = sum(1 for p in idx if p >= slots)
+            if past_end * 10 > len(idx):  # >10% unreachable
+                return None
+        return idx
+
+    def _all_rows(self, rs: int) -> list[bytes]:
+        """Every matrix slot as a row-sized ``bytes`` (positional, incl. stale)."""
+
+        return list(_iter_rows(self._row_blocks, rs))
+
+    @property
+    def slot_count(self) -> int:
+        """Raw number of matrix slots (may include stale rows)."""
 
         rs = self._row_size
         if rs <= 0:
             return 0
         return sum(len(seg) // rs for seg in self._row_blocks)
 
+    @property
+    def row_count(self) -> int:
+        """Number of *live* rows, without decoding any of them."""
+
+        ri = self._row_index()
+        if ri is not None:
+            return len(ri)
+        return self.slot_count
+
+    def _decode_row(self, row: bytes, ceb_len: int) -> dict:
+        ceb = row[self._ceb_off : self._ceb_off + ceb_len]
+        out = {"_rowid": u32(row, 0)}
+        for ci, (pid, ptype, ib, cb, ibit) in enumerate(self._cols):
+            if ib + cb > len(row):
+                continue
+            if ceb and ci < len(ceb) * 8 and not (ceb[ci >> 3] & (0x80 >> (ci & 7))):
+                continue
+            cell = row[ib : ib + cb]
+            out[pid] = self._decode_cell(ptype, cell)
+        return out
+
     def __iter__(self) -> Iterator[dict]:
         rs = self._row_size
         if rs <= 0:
             return
-        n_cols = len(self._cols)
-        ceb_len = (n_cols + 7) // 8
+        ceb_len = (len(self._cols) + 7) // 8
+
+        ri = self._row_index()
+        if ri is not None:
+            slots = self._all_rows(rs)
+            n = len(slots)
+            for pos in ri:
+                if 0 <= pos < n and len(slots[pos]) >= rs:
+                    yield self._decode_row(slots[pos], ceb_len)
+            return
+
         for row in _iter_rows(self._row_blocks, rs):
-            if len(row) < rs:
-                continue
-            ceb = row[self._ceb_off : self._ceb_off + ceb_len]
-            out = {"_rowid": u32(row, 0)}
-            for ci, (pid, ptype, ib, cb, ibit) in enumerate(self._cols):
-                if ib + cb > len(row):
-                    continue
-                if ceb and ci < len(ceb) * 8 and not (ceb[ci >> 3] & (0x80 >> (ci & 7))):
-                    continue
-                cell = row[ib : ib + cb]
-                out[pid] = self._decode_cell(ptype, cell)
-            yield out
+            if len(row) >= rs:
+                yield self._decode_row(row, ceb_len)
 
     def _decode_cell(self, ptype: int, cell: bytes):
         if ptype == 0x000B:
@@ -908,7 +967,48 @@ def _rtf_html(compressed: bytes) -> str | None:
 # --------------------------------------------------------------------------- #
 # Diagnostic CLI:  python -m parsers.pst_native <file.pst> [--dump-first]
 # --------------------------------------------------------------------------- #
-def _diagnostic(path: str, dump_first: bool) -> int:
+def _tc_report(pst: "PstFile", nid: int, label: str) -> None:
+    """Print the row-matrix / row-index internals of one folder's contents TC.
+
+    This is the view needed to tell "the folder really has N messages" apart
+    from "we failed to assemble all of its row-matrix blocks".
+    """
+
+    nid_index = nid >> 5
+    cont_nid = (nid_index << 5) | NID_TYPE_CONTENTS_TABLE
+    print(f"\n=== contents TC for {label!r} (folder nid={nid:#x}, table nid={cont_nid:#x}) ===")
+    try:
+        tc = pst._tc_from_nid(cont_nid)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  TC FAILED: {type(exc).__name__}: {exc}")
+        return
+
+    blocks = tc._row_blocks
+    rs = tc._row_size
+    print(f"  row_size            = {rs}")
+    print(f"  row-matrix blocks   = {len(blocks)}")
+    print(f"  block sizes         = {[len(b) for b in blocks][:12]}"
+          f"{' …' if len(blocks) > 12 else ''}")
+    print(f"  total matrix bytes  = {sum(len(b) for b in blocks)}")
+    print(f"  slot_count          = {tc.slot_count}")
+
+    ri = tc._row_index()
+    if ri is None:
+        print("  row index           = (none - falling back to a linear scan)")
+    else:
+        print(f"  row index entries   = {len(ri)}")
+        if ri:
+            print(f"  row index min/max   = {min(ri)} / {max(ri)}")
+            over = sum(1 for p in ri if p >= tc.slot_count)
+            print(f"  positions past end  = {over}  <-- rows we cannot locate")
+
+    rows = list(tc)
+    live = [r for r in rows if r.get("_rowid")]
+    print(f"  rows yielded        = {len(rows)}")
+    print(f"  rows with a msg id  = {len(live)}")
+
+
+def _diagnostic(path: str, dump_first: bool, tc_debug: bool = False) -> int:
     import sys as _sys
     import traceback
 
@@ -924,6 +1024,7 @@ def _diagnostic(path: str, dump_first: bool) -> int:
     total_msgs = 0
     first_msg_nid = None
     first_folder = None
+    biggest: list[tuple[int, int, str]] = []  # (count, nid, name)
 
     def walk(nid: int, depth: int) -> None:
         nonlocal total_msgs, first_msg_nid, first_folder
@@ -934,6 +1035,8 @@ def _diagnostic(path: str, dump_first: bool) -> int:
             return
         print("  " * depth + f"- {f.name!r}  ({f.message_count} messages)  nid={nid:#x}")
         total_msgs += f.message_count
+        if f.message_count:
+            biggest.append((f.message_count, nid, f.name))
         if f.message_count and first_msg_nid is None:
             rows = pst.folder_contents(nid)
             if rows:
@@ -944,6 +1047,10 @@ def _diagnostic(path: str, dump_first: bool) -> int:
 
     walk(pst.root_folder_nid(), 0)
     print(f"\ntotal messages across tree: {total_msgs}")
+
+    if tc_debug:
+        for count, nid, name in sorted(biggest, reverse=True)[:3]:
+            _tc_report(pst, nid, name)
 
     if dump_first and first_msg_nid:
         print(f"\n--- first message ({first_msg_nid:#x}) ---")
@@ -966,8 +1073,11 @@ def _diagnostic(path: str, dump_first: bool) -> int:
 if __name__ == "__main__":
     import sys
 
-    args = [a for a in sys.argv[1:] if a != "--dump-first"]
+    _flags = {"--dump-first", "--tc"}
+    args = [a for a in sys.argv[1:] if a not in _flags]
     if not args:
-        print("usage: python -m parsers.pst_native <file.pst|file.ost> [--dump-first]")
+        print("usage: python -m parsers.pst_native <file.pst|file.ost> [--dump-first] [--tc]")
         raise SystemExit(1)
-    raise SystemExit(_diagnostic(args[0], "--dump-first" in sys.argv))
+    raise SystemExit(
+        _diagnostic(args[0], "--dump-first" in sys.argv, "--tc" in sys.argv)
+    )

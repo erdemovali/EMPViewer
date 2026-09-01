@@ -233,6 +233,16 @@ Bir kopya şuraya kaydedildi:</translation>
         <source>&apos;%s&apos; is not a supported mail file.</source>
         <translation>&apos;%s&apos; desteklenen bir posta dosyası değil.</translation>
     </message>
+    <message numerus="yes">
+        <source>Restored %n item(s)</source>
+        <translation>
+            <numerusform>%n öğe geri yüklendi</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%s — click to load</source>
+        <translation>%s — yüklemek için tıklayın</translation>
+    </message>
     <message>
         <source>Large file</source>
         <extracomment>Confirm before opening a file bigger than this (MB), by extension group.</extracomment>
@@ -288,6 +298,12 @@ Bir kopya şuraya kaydedildi:</translation>
         <source>%n result(s)</source>
         <translation>
             <numerusform>%n sonuç</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n restored item(s) not searched yet; open them to include their messages.</source>
+        <translation>
+            <numerusform>geri yüklenen %n öğe henüz aranmadı; mesajlarının dahil olması için onları açın.</numerusform>
         </translation>
     </message>
     <message>
@@ -451,6 +467,10 @@ Bir kopya şuraya kaydedildi:</translation>
     <message>
         <source>Check for updates on startup</source>
         <translation>Açılışta güncelleme denetle</translation>
+    </message>
+    <message>
+        <source>Reopen the last session&apos;s files on startup</source>
+        <translation>Açılışta son oturumun dosyalarını yeniden aç</translation>
     </message>
 </context>
 <context>

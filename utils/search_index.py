@@ -83,6 +83,13 @@ class SearchIndex:
 
     def __init__(self, db_path: str = ":memory:") -> None:
         self._lock = threading.RLock()
+        #: Set by :meth:`close`. Background indexing runs on a worker thread and
+        #: can outlive the window that owns this index - shutdown only waits a
+        #: couple of seconds, and a large store takes far longer than that to
+        #: walk. Every call below turns into a no-op once this is set, so a
+        #: late write stops the indexer quietly instead of raising
+        #: ``ProgrammingError: Cannot operate on a closed database``.
+        self._closed = False
         self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS messages USING fts5("
@@ -109,6 +116,8 @@ class SearchIndex:
     ) -> None:
         key = json.dumps(target, sort_keys=True)
         with self._lock:
+            if self._closed:
+                return
             self._db.execute("DELETE FROM messages WHERE doc_key = ?", (key,))
             self._db.execute(
                 "INSERT INTO messages"
@@ -122,21 +131,29 @@ class SearchIndex:
     def set_body(self, target: dict, body: str) -> None:
         key = json.dumps(target, sort_keys=True)
         with self._lock:
+            if self._closed:
+                return
             self._db.execute(
                 "UPDATE messages SET body = ? WHERE doc_key = ?", (body, key)
             )
 
     def commit(self) -> None:
         with self._lock:
+            if self._closed:
+                return
             self._db.commit()
 
     def remove_source(self, source: str) -> None:
         with self._lock:
+            if self._closed:
+                return
             self._db.execute("DELETE FROM messages WHERE source = ?", (source,))
             self._db.commit()
 
     def bodies_missing(self, source: str, limit: int = 200) -> list[dict]:
         with self._lock:
+            if self._closed:
+                return []
             rows = self._db.execute(
                 "SELECT doc_key FROM messages WHERE source = ? AND body = '' LIMIT ?",
                 (source, limit),
@@ -146,7 +163,13 @@ class SearchIndex:
     # -- reads --------------------------------------------------------- #
     def count(self) -> int:
         with self._lock:
+            if self._closed:
+                return 0
             return int(self._db.execute("SELECT count(*) FROM messages").fetchone()[0])
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     def search(self, text: str, *, limit: int = 500) -> list[Hit]:
         q = parse_query(text)
@@ -177,6 +200,8 @@ class SearchIndex:
         )
         params.append(limit)
         with self._lock:
+            if self._closed:
+                return []
             try:
                 rows = self._db.execute(sql, params).fetchall()
             except sqlite3.OperationalError:
@@ -199,6 +224,9 @@ class SearchIndex:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             try:
                 self._db.close()
             except Exception:  # noqa: BLE001

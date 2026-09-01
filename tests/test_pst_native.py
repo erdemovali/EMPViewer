@@ -203,14 +203,83 @@ def test_bth_records_flat() -> None:
 
 
 def test_tc_row_count_matches_block_math() -> None:
-    # row_count must equal what _iter_rows yields: floor(len(block)/row_size) per block.
+    # With no Row Index, row_count falls back to floor(len(block)/row_size) per block.
     tc = pn.TC.__new__(pn.TC)
+    tc._ri_hid = 0
     tc._row_size = 10
     tc._row_blocks = [b"x" * 25, b"y" * 10, b"", b"z" * 9]
-    assert tc.row_count == 3  # 2 + 1 + 0 + 0
+    assert tc.slot_count == 3  # 2 + 1 + 0 + 0
+    assert tc.row_count == 3
     assert sum(1 for _ in pn._iter_rows(tc._row_blocks, tc._row_size)) == tc.row_count
 
     empty = pn.TC.__new__(pn.TC)
+    empty._ri_hid = 0
     empty._row_size = 0
     empty._row_blocks = []
     assert empty.row_count == 0
+
+
+def test_tc_row_index_skips_stale_matrix_slots() -> None:
+    # A folder with a Row Index must enumerate only the rows it lists, in order,
+    # ignoring stale/zeroed matrix slots that a linear walk would pick up.
+    tc = pn.TC.__new__(pn.TC)
+    tc._ri_hid = 0
+    tc._row_size = 4
+    # 5 matrix slots; only slots 0, 2 and 4 are live.
+    tc._row_blocks = [b"AAAA" b"\x00\x00\x00\x00" b"CCCC" b"\x00\x00\x00\x00" b"EEEE"]
+    tc._cols = []
+    tc._ceb_off = 4
+    tc._row_index = lambda: [4, 0, 2]  # Row Index order need not be matrix order
+
+    rows = list(tc)
+    assert [r["_rowid"] for r in rows] == [
+        pn.u32(b"EEEE"), pn.u32(b"AAAA"), pn.u32(b"CCCC")
+    ]
+    assert tc.row_count == 3
+    assert tc.slot_count == 5
+
+
+def _tc_with_row_index(row_blocks: list[bytes], row_size: int, positions: list[int]) -> "pn.TC":
+    """A TC whose Row Index reports *positions*, over the given row matrix."""
+
+    tc = pn.TC.__new__(pn.TC)
+    tc._ri_hid = 1  # non-zero so _row_index() runs
+    tc._row_size = row_size
+    tc._row_blocks = row_blocks
+    tc._cols = []
+    tc._ceb_off = row_size
+
+    # BTHHEADER: btype=0xB5, cbKey=4, cbEnt=4, bIdxLevels=0, hidRoot=2
+    header = struct.pack("<BBBBI", 0xB5, 4, 4, 0, 2)
+    # Leaf records: {dwRowID: dwRowIndex}, 4+4 bytes each.
+    leaf = b"".join(struct.pack("<II", p, p) for p in positions)
+
+    class _FakeHN:
+        def get(self, hid: int) -> bytes:
+            return header if hid == 1 else leaf
+
+    tc.hn = _FakeHN()
+    return tc
+
+
+def test_tc_ignores_row_index_that_outruns_the_matrix() -> None:
+    # A store still being written (or with row blocks we failed to assemble) has
+    # a Row Index naming rows whose bytes we do not hold. Honouring it would show
+    # a handful of messages out of thousands, so the linear scan must win.
+    tc = _tc_with_row_index([b"AAAABBBBCCCC"], 4, list(range(10)))  # 3 slots, 10 claimed
+
+    assert tc._row_index() is None                  # index rejected as unreachable
+    assert tc.slot_count == 3
+    assert tc.row_count == 3
+    assert [r["_rowid"] for r in tc] == [
+        pn.u32(b"AAAA"), pn.u32(b"BBBB"), pn.u32(b"CCCC")
+    ]
+
+
+def test_tc_keeps_row_index_with_a_few_unreachable_rows() -> None:
+    # A handful of unreachable positions is normal slack, not a broken matrix:
+    # keep using the index and just skip what we cannot locate.
+    tc = _tc_with_row_index([b"A" * 4 * 20], 4, [*range(19), 999])
+    idx = tc._row_index()
+    assert idx is not None and len(idx) == 20
+    assert len(list(tc)) == 19  # the out-of-range one is dropped

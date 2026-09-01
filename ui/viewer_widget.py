@@ -292,6 +292,7 @@ class ViewerWidget(QWidget):
         self._prefer_text = False
         self._history: list[EmailMessage] = []
         self._hist_pos = -1
+        self._recipients_expanded = False
         self._load_prefs()
 
         root = QVBoxLayout(self)
@@ -331,11 +332,23 @@ class ViewerWidget(QWidget):
         self.lbl_meta = QLabel()
         self.lbl_meta.setWordWrap(True)
         self.lbl_meta.setTextFormat(Qt.TextFormat.RichText)
-        self.lbl_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.lbl_meta.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        self.lbl_meta.linkActivated.connect(self._on_meta_link)
 
         lay.addWidget(self.lbl_subject)
         lay.addWidget(self.lbl_meta)
         return box
+
+    def _on_meta_link(self, href: str) -> None:
+        """Expand / collapse the recipient rows in the header."""
+
+        if href != self._TOGGLE_URL or self._message is None:
+            return
+        self._recipients_expanded = not self._recipients_expanded
+        self.lbl_meta.setText(self._meta_html(self._message))
 
     def _build_remote_banner(self) -> QWidget:
         self.remote_banner = QFrame()
@@ -475,6 +488,7 @@ class ViewerWidget(QWidget):
         self.close_find()
 
         self.lbl_subject.setText(_esc(message.display_name))
+        self._recipients_expanded = False  # every message starts collapsed
         self.lbl_meta.setText(self._meta_html(message))
 
         self.browser.set_inline_resources(message.inline_by_cid)
@@ -500,19 +514,53 @@ class ViewerWidget(QWidget):
             self._show(self._history[self._hist_pos])
 
     # -- rendering -------------------------------------------------- #
-    @staticmethod
-    def _meta_html(m: EmailMessage) -> str:
+    # Recipients shown before a "+N more" link takes over. A message sent to a
+    # whole department otherwise pushes the body off the screen entirely.
+    # (Plain "#" on purpose: lupdate reads "#:" as a translator note and would
+    # staple this onto the next tr() string it finds.)
+    RECIPIENTS_COLLAPSED = 3
+
+    # Link target the meta label uses to toggle the recipient rows.
+    _TOGGLE_URL = "empviewer:toggle-recipients"
+
+    @classmethod
+    def _recipient_html(cls, names: list[str], expanded: bool) -> str:
+        """Recipients as text, trimmed to a "+N more" link while collapsed."""
+
+        T = QCoreApplication.translate
+        if expanded or len(names) <= cls.RECIPIENTS_COLLAPSED:
+            text = _esc(", ".join(names))
+            if expanded and len(names) > cls.RECIPIENTS_COLLAPSED:
+                text += (
+                    f'  <a href="{cls._TOGGLE_URL}">'
+                    + _esc(T("ViewerWidget", "Show less"))
+                    + "</a>"
+                )
+            return text
+        shown = names[: cls.RECIPIENTS_COLLAPSED]
+        hidden = len(names) - len(shown)
+        more = T("ViewerWidget", "+%n more", "", hidden)
+        return (
+            _esc(", ".join(shown))
+            + f'  <a href="{cls._TOGGLE_URL}">{_esc(more)}</a>'
+        )
+
+    def _meta_html(self, m: EmailMessage) -> str:
         T = QCoreApplication.translate
         style = str(QSettings().value("appearance/dateFormat", "local"))
+        expanded = self._recipients_expanded
         rows: list[str] = []
         if m.sender:
             rows.append(f"<b>{T('ViewerWidget', 'From')}:</b> {_esc(m.sender)}")
         if m.to:
-            rows.append(f"<b>{T('ViewerWidget', 'To')}:</b> {_esc(', '.join(m.to))}")
+            rows.append(f"<b>{T('ViewerWidget', 'To')}:</b> "
+                        f"{self._recipient_html(m.to, expanded)}")
         if m.cc:
-            rows.append(f"<b>{T('ViewerWidget', 'Cc')}:</b> {_esc(', '.join(m.cc))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Cc')}:</b> "
+                        f"{self._recipient_html(m.cc, expanded)}")
         if m.bcc:
-            rows.append(f"<b>{T('ViewerWidget', 'Bcc')}:</b> {_esc(', '.join(m.bcc))}")
+            rows.append(f"<b>{T('ViewerWidget', 'Bcc')}:</b> "
+                        f"{self._recipient_html(m.bcc, expanded)}")
         if m.date:
             rows.append(f"<b>{T('ViewerWidget', 'Date')}:</b> {_esc(format_datetime(m.date, style=style))}")
         if m.folder_path:

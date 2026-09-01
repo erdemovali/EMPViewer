@@ -68,3 +68,22 @@ def test_remove_source_and_body_sweep() -> None:
     assert [h.subject for h in ix.search("penguins")] == ["Hello"]
     ix.remove_source("b.pst")
     assert ix.count() == 0
+
+
+def test_calls_after_close_are_silent_no_ops() -> None:
+    # Indexing runs on a worker thread that can outlive the window: shutdown
+    # waits only a couple of seconds, and walking a big store takes far longer.
+    # A late write must not raise "Cannot operate on a closed database".
+    ix = _idx()
+    ix.close()
+    assert ix.closed is True
+
+    ix.add({"kind": "pst", "id": 3}, source="a.pst", subject="late arrival")
+    ix.set_body({"kind": "pst", "id": 1}, "late body")
+    ix.commit()
+    ix.remove_source("a.pst")
+
+    assert ix.search("invoice") == []
+    assert ix.bodies_missing("a.pst") == []
+    assert ix.count() == 0
+    ix.close()  # idempotent

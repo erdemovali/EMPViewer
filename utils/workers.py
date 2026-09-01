@@ -114,9 +114,18 @@ class ListMessagesRunnable(_BaseRunnable):
     def run(self) -> None:
         if self._cancelled:
             return
+
+        def _progress(done: int, total: int) -> None:
+            if self._cancelled:
+                return
+            pct = int(done * 100 / total) if total else -1
+            self.signals.progress.emit(pct, "")
+
         try:
             stubs: list[MessageStub] = self._backend.list_messages(
-                self._folder_id, should_cancel=lambda: self._cancelled
+                self._folder_id,
+                should_cancel=lambda: self._cancelled,
+                on_progress=_progress,
             )
         except ParserError as exc:
             log.info("list_messages(%r) failed: %s", self._folder_id, exc.message)

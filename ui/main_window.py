@@ -79,7 +79,13 @@ from parsers.models import EmailMessage, MessageStub, PstDocument
 from ui import theme
 from ui.viewer_widget import ViewerWidget
 from utils.branding import make_app_icon
-from utils.helpers import filter_supported, format_datetime, human_size, is_supported_file
+from utils.helpers import (
+    filter_supported,
+    format_datetime,
+    human_size,
+    is_pst_like,
+    is_supported_file,
+)
 from utils.workers import (
     FnRunnable,
     GetMessageRunnable,
@@ -205,6 +211,61 @@ def _jsonable(value):
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     return value
+
+
+# --------------------------------------------------------------------------- #
+# Session restore
+# --------------------------------------------------------------------------- #
+# How a restored Library entry comes back. PST/OST stores and scanned folders
+# can take a long time to enumerate, so they are re-added as placeholders that
+# read the store only once the user asks for it; a single message file is cheap
+# enough to open outright. (Plain "#" on purpose: lupdate treats "#:" as a
+# translator note and would staple this onto the next tr() string it finds.)
+RESTORE_LAZY = "lazy"
+RESTORE_EAGER = "eager"
+
+
+def session_paths(raw) -> list[str]:
+    """Normalise the ``session/openPaths`` QSettings value into a path list.
+
+    QSettings hands back a bare string for a one-element list, so mirror the
+    defensive shape :meth:`MainWindow._recent_paths` already uses.
+    """
+
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    return [str(p) for p in raw]
+
+
+def plan_restore(paths) -> list[tuple[str, str]]:
+    """Decide how each saved path comes back: ``(path, RESTORE_*)`` pairs.
+
+    Paths that have since been moved or deleted are dropped silently - startup
+    is the wrong moment to raise a dialog about last week's file. The kind is
+    re-derived from the filesystem rather than stored, so a path that changed
+    type between runs heals itself instead of failing.
+    """
+
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw in paths:
+        if not raw:
+            continue
+        path = str(Path(raw))
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            p = Path(path)
+            if p.is_dir():
+                out.append((path, RESTORE_LAZY))
+            elif p.is_file():
+                out.append((path, RESTORE_LAZY if is_pst_like(path) else RESTORE_EAGER))
+        except OSError:
+            continue  # unreachable network share, permission denied, …
+    return out
 
 
 _REPLY_PREFIX = re.compile(
@@ -341,6 +402,10 @@ class MainWindow(QMainWindow):
         self._runnables: list[Any] = []
         self._active_backend = None  # backend of the currently selected PST folder
         self._pending_hit: dict | None = None  # search hit awaiting its folder to load
+        self._folder_load_active = 0  # >0 while the user is waiting on a folder list
+        self._materializing: set[str] = set()  # restored placeholders being opened
+        self._deferred_target: dict | None = None  # selection awaiting its store
+        self._last_target: dict | None = None  # what to re-select next launch
 
         from utils.helpers import session_temp_dir
         from utils.search_index import SearchIndex
@@ -377,6 +442,7 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._tree_context_menu)
         self.tree.itemEntered.connect(lambda *_: self.tree.viewport().update())
         self.tree.currentItemChanged.connect(self._on_tree_selection)
+        self.tree.itemExpanded.connect(self._on_item_expanded)
 
         self.list_model = EmailListModel(self)
         self.proxy = MailFilterProxy(self)
@@ -639,11 +705,31 @@ class MainWindow(QMainWindow):
             self._balance_right_split()
 
     def _persist_settings(self) -> None:
+        import json
+
         s = QSettings()
         s.setValue("window/geometry", self.saveGeometry())
         s.setValue("window/state", self.saveState())
         s.setValue("window/mainSplit", self._main_split.sizes())
         s.setValue("window/rightSplit", self._right_split.sizes())
+        # Walk the tree rather than self._open_paths: that is an unordered set,
+        # and the Library would come back shuffled every launch.
+        s.setValue("session/openPaths", self._library_paths())
+        s.setValue(
+            "session/lastTarget",
+            json.dumps(self._last_target) if self._last_target else "",
+        )
+
+    def _library_paths(self) -> list[str]:
+        """Top-level Library paths, in the order they appear in the tree."""
+
+        out: list[str] = []
+        for i in range(self.tree.topLevelItemCount()):
+            data = self.tree.topLevelItem(i).data(0, _ITEM_ROLE) or {}
+            path = data.get("path")
+            if path:
+                out.append(str(path))
+        return out
 
     # ------------------------------------------------------------------ #
     # Public entry points
@@ -660,6 +746,99 @@ class MainWindow(QMainWindow):
         self.open_path(path)
         self.raise_()
         self.activateWindow()
+
+    # ------------------------------------------------------------------ #
+    # Session restore
+    # ------------------------------------------------------------------ #
+    def restore_session(self) -> None:
+        """Bring the Library back as the last run left it.
+
+        Called once from :func:`main.main` after the window is shown, and only
+        for the primary instance with no files on the command line.
+        """
+
+        s = QSettings()
+        if not s.value("session/restoreOnStartup", True, type=bool):
+            return
+
+        entries = plan_restore(session_paths(s.value("session/openPaths", [])))
+        if not entries:
+            return
+
+        # Every entry gets a placeholder first so each one owns its row up front.
+        # Eager loads finish on a worker thread and would otherwise land at the
+        # bottom of the tree, shuffling the Library on every launch.
+        for path, _kind in entries:
+            self._add_lazy_item(path)
+        for path, kind in entries:
+            if kind == RESTORE_EAGER:
+                item = self._find_lazy_item(path)
+                if item is not None:
+                    self._materialize_lazy(item)
+
+        self._status_label.setText(self.tr("Restored %n item(s)", "", len(entries)))
+        self._restore_last_target(s)
+
+    def _restore_last_target(self, s: QSettings) -> None:
+        """Arm the folder / message the user was last reading.
+
+        A store is *not* opened just to honour this: that would re-read the very
+        file the placeholder exists to defer. The target waits until the user
+        opens that store themselves, and :meth:`_on_loaded` applies it then.
+        """
+
+        import json
+
+        raw = s.value("session/lastTarget", "")
+        if not raw:
+            return
+        try:
+            target = json.loads(str(raw))
+        except (TypeError, ValueError):
+            return
+        if not isinstance(target, dict):
+            return
+        path = target.get("path")
+        if not path or path not in self._open_paths:
+            return
+        if target.get("kind") == "file":
+            self._select_top_level_by_path(path)
+        else:
+            self._deferred_target = target
+
+    def _find_lazy_item(self, path: str) -> QTreeWidgetItem | None:
+        return self._find_tree_item(
+            lambda d: d.get("kind") == "pstlazy" and d.get("path") == path
+        )
+
+    def _add_lazy_item(self, path: str) -> QTreeWidgetItem:
+        """Add a Library row that reads its store only when asked."""
+
+        item = QTreeWidgetItem([Path(path).name])
+        item.setToolTip(0, self.tr("%s — click to load") % path)
+        item.setData(0, _ITEM_ROLE, {"kind": "pstlazy", "path": path})
+        # No children yet, so ask for the expand arrow explicitly.
+        item.setChildIndicatorPolicy(
+            QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+        )
+        self.tree.addTopLevelItem(item)
+        self._open_paths.add(path)
+        return item
+
+    def _materialize_lazy(self, item: QTreeWidgetItem) -> None:
+        data = item.data(0, _ITEM_ROLE) or {}
+        path = data.get("path")
+        if not path or path in self._materializing:
+            return
+        self._materializing.add(path)
+        if Path(path).is_dir():
+            self._open_folder(path, force=True)
+        else:
+            self.open_path(path, force=True)
+
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        if (item.data(0, _ITEM_ROLE) or {}).get("kind") == "pstlazy":
+            self._materialize_lazy(item)
 
     #: Confirm before opening a file bigger than this (MB), by extension group.
     _BIG_FILE_MB = {".pst": 512, ".ost": 512, ".eml": 64, ".msg": 64}
@@ -683,9 +862,20 @@ class MainWindow(QMainWindow):
         )
         return answer != QMessageBox.StandardButton.Yes
 
-    def open_path(self, path: str | Path) -> None:
+    def open_any(self, path: str | Path) -> None:
+        """Open a file *or* a directory - ``open_path`` rejects directories."""
+
+        if Path(path).is_dir():
+            self._open_folder(str(path))
+        else:
+            self.open_path(path)
+
+    def open_path(self, path: str | Path, *, force: bool = False) -> None:
+        # ``force`` is for materialising a restored placeholder: its path is
+        # already in _open_paths (so the Library dedupes and closes correctly),
+        # which would otherwise make this a no-op that just re-selects the row.
         path = str(Path(path))
-        if path in self._open_paths:
+        if not force and path in self._open_paths:
             self._select_top_level_by_path(path)
             return
         if self._too_big_to_open(path):
@@ -705,12 +895,15 @@ class MainWindow(QMainWindow):
         self._clear_busy()
         self._open_paths.add(path)
         self._push_recent(path)
+        # A restored placeholder for this path gives up its slot so the Library
+        # keeps the order the user left it in.
+        slot = self._take_lazy_slot(path)
 
         if isinstance(result, EmailMessage):
             item = QTreeWidgetItem([Path(path).name])
             item.setToolTip(0, path)
             item.setData(0, _ITEM_ROLE, {"kind": "file", "message": result, "path": path})
-            self.tree.addTopLevelItem(item)
+            self._place_top_level(item, slot)
             self.tree.setCurrentItem(item)
             self._index_message({"kind": "file", "path": path}, path, result)
         elif isinstance(result, PstDocument):
@@ -719,7 +912,7 @@ class MainWindow(QMainWindow):
             root_item.setToolTip(0, path)
             root_item.setData(0, _ITEM_ROLE, {"kind": "pstroot", "doc": result, "path": path})
             self._add_folder_items(root_item, result, result.root, folder_path=result.root.name)
-            self.tree.addTopLevelItem(root_item)
+            self._place_top_level(root_item, slot)
             root_item.setExpanded(True)
             self.tree.setCurrentItem(root_item)
             self._index_pst(result)
@@ -728,6 +921,31 @@ class MainWindow(QMainWindow):
             return
 
         self._status_label.setText(self.tr("Opened %s") % Path(path).name)
+
+        self._materializing.discard(path)
+        # A restored selection may have been waiting for this store. Leave it
+        # armed if some other item just opened - the user can still get back to
+        # where they were by opening the one it names.
+        target = self._deferred_target
+        if target is not None and target.get("path") == path:
+            self._deferred_target = None
+            self._open_search_hit(target)
+
+    def _place_top_level(self, item: QTreeWidgetItem, slot: int | None) -> None:
+        if slot is None:
+            self.tree.addTopLevelItem(item)
+        else:
+            self.tree.insertTopLevelItem(slot, item)
+
+    def _take_lazy_slot(self, path: str) -> int | None:
+        """Remove the placeholder for *path*, returning the row it occupied."""
+
+        for i in range(self.tree.topLevelItemCount()):
+            data = self.tree.topLevelItem(i).data(0, _ITEM_ROLE) or {}
+            if data.get("kind") == "pstlazy" and data.get("path") == path:
+                self.tree.takeTopLevelItem(i)
+                return i
+        return None
 
     def _add_folder_items(self, parent_item: QTreeWidgetItem, doc: PstDocument, node, folder_path: str) -> None:
         for child in node.children:
@@ -750,6 +968,10 @@ class MainWindow(QMainWindow):
     def _on_load_error(self, path: str, message: str) -> None:
         logging.getLogger("empviewer.ui").warning("open %r failed: %s", path, message)
         self._clear_busy()
+        # Leave the placeholder in place so the row can be clicked again.
+        self._materializing.discard(path)
+        if self._deferred_target and self._deferred_target.get("path") == path:
+            self._deferred_target = None
         self.loadFailed.emit(message)
         self._warn(self.tr("Could not open file"), message)
 
@@ -766,18 +988,31 @@ class MainWindow(QMainWindow):
         self._act_export_folder.setEnabled(kind == "pstfolder")
         self._act_export_pst.setEnabled(is_pst)
 
-        if kind == "file":
+        if kind == "pstlazy":
+            self.list_model.set_stubs([])
+            self._active_backend = None
+            self._show_message_list(False)
+            self.viewer.clear()
+            self._update_title(None)
+            self._materialize_lazy(current)
+        elif kind == "file":
             self.list_model.set_stubs([])
             self._active_backend = None
             self._show_message_list(False)
             self.viewer.set_message(data["message"])
             self._reset_view_toggles()
             self._update_title(data["message"].display_name)
+            self._last_target = {"kind": "file", "path": data.get("path")}
         elif kind == "pstfolder":
             self._active_backend = data["doc"].backend
             self._show_message_list(True)
             self._load_folder(data["doc"], data["folder_id"], data["folder_path"])
             self._update_title(data.get("folder_path"))
+            self._last_target = {
+                "kind": "pst",
+                "path": data["doc"].path,
+                "folder": self._folder_label(data),
+            }
         else:  # pstroot / anything else
             self.list_model.set_stubs([])
             self._active_backend = None
@@ -871,10 +1106,21 @@ class MainWindow(QMainWindow):
         self.search_index.commit()
 
     def _index_pst(self, doc: PstDocument) -> None:
-        """Walk every folder of *doc* and index its stubs (no body fetch)."""
+        """Walk every folder of *doc* and index its stubs (no body fetch).
+
+        Runs at low priority: it starts a few seconds after the file opens and
+        yields the shared backend lock whenever the user is waiting on a folder
+        list, so clicking a big folder never queues behind the indexer.
+        """
+
+        import time
 
         def work(*, should_cancel):
             for node in [doc.root, *doc.root.iter_descendants()]:
+                if should_cancel():
+                    return
+                while self._folder_load_active and not should_cancel():
+                    time.sleep(0.15)
                 if should_cancel():
                     return
                 fpath = self._folder_path_for(doc, node)
@@ -882,7 +1128,12 @@ class MainWindow(QMainWindow):
                     stubs = doc.backend.list_messages(node.backend_id, should_cancel=should_cancel)
                 except Exception:  # noqa: BLE001
                     continue
-                for st in stubs:
+                for i, st in enumerate(stubs):
+                    # A big folder is tens of thousands of stubs; without a check
+                    # in here the worker keeps writing long after shutdown
+                    # cancelled it and outlives the index it writes to.
+                    if (i & 0xFF) == 0 and (should_cancel() or self.search_index.closed):
+                        return
                     self.search_index.add(
                         {"kind": "pst", "path": doc.path, "folder": fpath,
                          "bid": _jsonable(st.backend_id)},
@@ -891,9 +1142,12 @@ class MainWindow(QMainWindow):
                     )
             self.search_index.commit()
 
-        task = FnRunnable(work, pass_cancel=True)
-        self._track(task)
-        submit(task)
+        def start():
+            task = FnRunnable(work, pass_cancel=True)
+            self._track(task)
+            submit(task)
+
+        QTimer.singleShot(3000, start)
 
     @staticmethod
     def _folder_path_for(doc: PstDocument, node) -> str:
@@ -907,10 +1161,27 @@ class MainWindow(QMainWindow):
             return
         hits = self.search_index.search(text)
         self.results_model.set_stubs([self._hit_stub(h) for h in hits])
-        self._results_label.setText(self.tr("%n result(s)", "", len(hits)))
+        label = self.tr("%n result(s)", "", len(hits))
+        # The index is built from what is actually open, so a restored
+        # placeholder contributes nothing until it is loaded. Say so rather than
+        # letting the count quietly under-report.
+        pending = self._lazy_count()
+        if pending:
+            label += "  —  " + self.tr(
+                "%n restored item(s) not searched yet; open them to include their messages.",
+                "", pending,
+            )
+        self._results_label.setText(label)
         self._results_hits = hits
         self._results_panel.show()
         self._balance_right_split()
+
+    def _lazy_count(self) -> int:
+        return sum(
+            1
+            for i in range(self.tree.topLevelItemCount())
+            if (self.tree.topLevelItem(i).data(0, _ITEM_ROLE) or {}).get("kind") == "pstlazy"
+        )
 
     def _hit_stub(self, hit) -> MessageStub:
         subject = f"[{hit.folder}] {hit.subject}" if hit.folder else hit.subject
@@ -1020,14 +1291,20 @@ class MainWindow(QMainWindow):
         self.filter_edit.clear()
         self.viewer.clear()
         self._current_folder = (doc, folder_id, folder_path)
+        self._folder_load_active += 1  # tells the search indexer to stand back
         self._set_busy(self.tr("Loading %s…") % folder_path)
         task = ListMessagesRunnable(doc.backend, folder_id)
+        task.signals.progress.connect(self._on_progress)
         task.signals.finished.connect(lambda stubs: self._on_folder_loaded(stubs))
         task.signals.error.connect(lambda msg: self._on_folder_error(msg))
         self._track(task)
         submit(task)
 
+    def _folder_load_done(self) -> None:
+        self._folder_load_active = max(0, self._folder_load_active - 1)
+
     def _on_folder_loaded(self, stubs: list[MessageStub]) -> None:
+        self._folder_load_done()
         self._clear_busy()
         self.list_model.set_stubs(stubs)
         self._status_label.setText(self.tr("%n message(s)", "", len(stubs)))
@@ -1047,6 +1324,7 @@ class MainWindow(QMainWindow):
                     break
 
     def _on_folder_error(self, message: str) -> None:
+        self._folder_load_done()
         self._clear_busy()
         self._warn(self.tr("Folder"), message)
 
@@ -1057,6 +1335,8 @@ class MainWindow(QMainWindow):
         stub = self.list_model.stub_at(source.row())
         if stub is None:
             return
+        if self._last_target is not None and self._last_target.get("kind") == "pst":
+            self._last_target["bid"] = _jsonable(stub.backend_id)
         self._set_busy(self.tr("Opening message…"))
         task = GetMessageRunnable(self._active_backend, stub.backend_id)
         task.signals.finished.connect(self._on_message_loaded)
@@ -1231,9 +1511,9 @@ class MainWindow(QMainWindow):
         s.setValue("io/lastDir", folder)
         self._open_folder(folder)
 
-    def _open_folder(self, folder: str) -> None:
+    def _open_folder(self, folder: str, *, force: bool = False) -> None:
         folder = str(Path(folder))
-        if folder in self._open_paths:
+        if not force and folder in self._open_paths:
             self._select_top_level_by_path(folder)
             return
         from parsers.folder_parser import open_dir
@@ -1271,7 +1551,7 @@ class MainWindow(QMainWindow):
         for p in paths:
             act = menu.addAction(Path(p).name)
             act.setToolTip(p)
-            act.triggered.connect(lambda _checked=False, path=p: self.open_path(path))
+            act.triggered.connect(lambda _checked=False, path=p: self.open_any(path))
         menu.addSeparator()
         menu.addAction(self.tr("Clear Recent Files")).triggered.connect(self._clear_recent)
 

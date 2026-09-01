@@ -97,6 +97,12 @@ class SettingsDialog(QDialog):
         self.check_updates.setChecked(bool(s.value("updates/checkOnStartup", False, type=bool)))
         form.addRow("", self.check_updates)
 
+        self.restore_session = QCheckBox(self.tr("Reopen the last session's files on startup"))
+        self.restore_session.setChecked(
+            bool(s.value("session/restoreOnStartup", True, type=bool))
+        )
+        form.addRow("", self.restore_session)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -118,6 +124,7 @@ class SettingsDialog(QDialog):
         s.setValue("viewer/preferPlainText", self.prefer_text.isChecked())
         s.setValue("viewer/autoLoadRemote", self.auto_remote.isChecked())
         s.setValue("updates/checkOnStartup", self.check_updates.isChecked())
+        s.setValue("session/restoreOnStartup", self.restore_session.isChecked())
         if parent is not None and hasattr(parent, "apply_viewer_prefs"):
             parent.apply_viewer_prefs()
         self.accept()
